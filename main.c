@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -12,8 +13,9 @@
 #define HEIGHT 600
 
 typedef struct {
-    float x, y, z;
-} Data;
+    float roll, pitch, yaw;
+} EulerAngle;
+
     
 //partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
 int open_serial(const char* path) {
@@ -52,6 +54,16 @@ int open_serial(const char* path) {
     return fd; 
 }
 
+void draw_arrow(Vector3 start_pos, Vector3 direction, float len, float thickness, Color color)  {
+    assert(fabs(Vector3Length(direction) - 1) <= 1e-2);
+    Vector3 end_pos = Vector3Add(start_pos, Vector3Scale(direction, len));
+    DrawCylinderEx(start_pos, end_pos, thickness, thickness, 100, color);
+
+    Vector3 arrow_displacement = Vector3Scale(direction, 10);
+
+    DrawCylinderEx(Vector3Add(end_pos, arrow_displacement), end_pos, 1, thickness * 2, 100, color);
+}
+
 int main() { 
     const char* path = "/dev/ttyACM0";
 
@@ -74,27 +86,39 @@ int main() {
     uav.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
     DisableCursor();
 
-    size_t pos = 0;
-    static char line[128] = {0};
-    Data recent; 
+    EulerAngle rate = {0}; 
+    EulerAngle angle = {0}; 
+    static char line[128] = { 0 };
     while (!WindowShouldClose()) {
+        size_t parse_pos = 0;
         char c;
         while (read(fd, &c, 1) == 1) {
             if (c == '\n') {
-                line[pos] = '\0';
-                Data read = {0};
-                if (sscanf(line, "%f, %f, %f", &read.x, &read.y, &read.z) == 3) {
-                    recent = read; 
+                line[parse_pos] = '\0';
+                EulerAngle read = {0};
+                if (sscanf(line, "%f, %f, %f", &read.roll, &read.pitch, &read.yaw) == 3) {
+                    read.pitch *= DEG2RAD;
+                    read.yaw *= DEG2RAD;
+                    read.roll *= DEG2RAD;
+                    rate = read; 
                 }
-                pos = 0;
+                parse_pos = 0;
             }
-            else if (c != '\r' && pos <= sizeof(line) - 2) {
-                line[pos] = c;
-                pos++;
+            else if (c != '\r' && parse_pos <= sizeof(line) - 2) {
+                line[parse_pos] = c;
+                parse_pos++;
             }
         }
 
-        printf("%f, %f, %f\n", recent.x, recent.y, recent.z);
+        printf("%f, %f, %f\n", rate.roll, rate.pitch, rate.yaw);
+        float dt = GetFrameTime();
+        
+        angle.roll += dt * rate.roll;
+        angle.yaw += dt * rate.yaw;
+        angle.pitch += dt * rate.pitch;
+
+        uav.transform = MatrixRotateXYZ((Vector3){angle.roll, angle.pitch, angle.yaw});
+        
         UpdateCamera(&camera, CAMERA_FREE);
         
         BeginDrawing();
@@ -103,7 +127,15 @@ int main() {
 
             BeginMode3D(camera);
 
+
+            
+            DrawGrid(20, 10);
+
+
             DrawModel(uav, Vector3Zero(), 1.0, WHITE);
+            draw_arrow(Vector3Zero(), (Vector3) {1.0, 0,   0  }, 50, 2, RED);
+            draw_arrow(Vector3Zero(), (Vector3) {0,   1.0, 0  }, 50, 2, GREEN);
+            draw_arrow(Vector3Zero(), (Vector3) {0,   0,   1.0}, 50, 2, BLUE);
 
             EndMode3D();
         }
