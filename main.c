@@ -14,8 +14,6 @@
 
 #define WIDTH 1600
 #define HEIGHT 900
-
-
     
 //partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
 int open_serial(const char* path) {
@@ -55,19 +53,19 @@ int open_serial(const char* path) {
 }
 
 
-
-
-
-
 int main() { 
     const char* path = "/dev/ttyACM0";
 
     int fd;
     if ((fd = open_serial(path)) == -1) return -1; 
 
+    SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIDTH, HEIGHT, "IMU Visualizer");
     SetTargetFPS(60);
     Camera camera = {0};
+
+    const int font_size = 40;
+    Font font = LoadFontEx("./resources/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
 
     camera.position   = (Vector3) { -120, 120, 0 };
     camera.target     = (Vector3) { 0, 0, 0 };
@@ -122,12 +120,12 @@ int main() {
         angle.pitch = fmodf(angle.pitch + (-dt) * rate.pitch, 2*PI);
         angle.yaw = fmodf(angle.yaw + (-dt) * rate.yaw, 2*PI);
 
-        UpdateCamera(&camera, CAMERA_FREE);
         
+        UpdateCamera(&camera, CAMERA_FREE);
         BeginDrawing();
         BeginMode3D(camera);
         {
-            ClearBackground(RAYWHITE);
+            ClearBackground(BLACK);
 
             DrawGrid(30, 10);
 
@@ -154,10 +152,10 @@ int main() {
             rlPopMatrix();
 
         }
-        draw_ui(angle);
+        draw_ui(angle, font, font_size);
         EndDrawing();
     }
 
     CloseWindow();
-    if (close(fd) == -1) fprintf(stderr, "Error: could not close serial port: %s\n", strerror(errno));
+    if (close(fd) == -1) { fprintf(stderr, "Error: could not close serial port: %s\n", strerror(errno)); return -1; }; 
 } 
