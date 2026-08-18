@@ -1,3 +1,4 @@
+#include "main.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -6,6 +7,7 @@
 #include <sys/select.h>
 #include <unistd.h>
 #include <termios.h>
+#include "draw.h"
 #include "raylib.h"
 #include "raymath.h"
 #include "rlgl.h"
@@ -13,9 +15,6 @@
 #define WIDTH 1600
 #define HEIGHT 900
 
-typedef struct {
-    float roll, pitch, yaw;
-} EulerAngle;
 
     
 //partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
@@ -55,15 +54,10 @@ int open_serial(const char* path) {
     return fd; 
 }
 
-void draw_arrow(Vector3 start_pos, Vector3 direction, float len, float thickness, Color color)  {
-    assert(fabs(Vector3Length(direction) - 1) <= 1e-2);
-    Vector3 end_pos = Vector3Add(start_pos, Vector3Scale(direction, len));
-    DrawCylinderEx(start_pos, end_pos, thickness, thickness, 100, color);
 
-    Vector3 arrow_displacement = Vector3Scale(direction, 10);
 
-    DrawCylinderEx(Vector3Add(end_pos, arrow_displacement), end_pos, 0, thickness * 2, 100, color);
-}
+
+
 
 int main() { 
     const char* path = "/dev/ttyACM0";
@@ -123,6 +117,7 @@ int main() {
         printf("%f, %f, %f\n", rate.roll, rate.pitch, rate.yaw);
         float dt = GetFrameTime();
         
+        // TODO: do not multiply by - manually
         angle.roll = fmodf(angle.roll + dt * rate.roll, 2*PI);
         angle.pitch = fmodf(angle.pitch + (-dt) * rate.pitch, 2*PI);
         angle.yaw = fmodf(angle.yaw + (-dt) * rate.yaw, 2*PI);
@@ -159,6 +154,7 @@ int main() {
             rlPopMatrix();
 
         }
+        draw_ui(angle);
         EndDrawing();
     }
 
