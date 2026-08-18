@@ -1,0 +1,17 @@
+[
+  {
+    "file": "main.c",
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-g",
+      "main.c",
+      "-I./raylib/include",
+      "-o",
+      "imu_visualizer"
+    ],
+    "directory": "/home/sinex/Programming/cpp/imu_visualizer",
+    "output": "imu_visualizer"
+  }
+]
