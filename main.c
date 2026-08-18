@@ -8,9 +8,10 @@
 #include <termios.h>
 #include "raylib.h"
 #include "raymath.h"
+#include "rlgl.h"
 
-#define WIDTH 800
-#define HEIGHT 600
+#define WIDTH 1600
+#define HEIGHT 900
 
 typedef struct {
     float roll, pitch, yaw;
@@ -61,7 +62,7 @@ void draw_arrow(Vector3 start_pos, Vector3 direction, float len, float thickness
 
     Vector3 arrow_displacement = Vector3Scale(direction, 10);
 
-    DrawCylinderEx(Vector3Add(end_pos, arrow_displacement), end_pos, 1, thickness * 2, 100, color);
+    DrawCylinderEx(Vector3Add(end_pos, arrow_displacement), end_pos, 0, thickness * 2, 100, color);
 }
 
 int main() { 
@@ -74,7 +75,7 @@ int main() {
     SetTargetFPS(60);
     Camera camera = {0};
 
-    camera.position   = (Vector3) { 0, 120, -120 };
+    camera.position   = (Vector3) { -120, 120, 0 };
     camera.target     = (Vector3) { 0, 0, 0 };
     camera.up         = (Vector3) { 0, 1, 0 };
     camera.fovy       = 80;
@@ -86,8 +87,9 @@ int main() {
     uav.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
     DisableCursor();
 
-    EulerAngle rate = {0}; 
-    EulerAngle angle = {0}; 
+    EulerAngle rate = {0, 0, 0}; 
+    EulerAngle angle = {0, 0, 0};
+
     static char line[128] = { 0 };
     while (!WindowShouldClose()) {
         size_t parse_pos = 0;
@@ -110,34 +112,52 @@ int main() {
             }
         }
 
+        if (IsKeyDown(KEY_R)) {
+            angle = (EulerAngle) { 0 };
+        }
+        if (IsKeyDown(KEY_Z)) {
+            camera.target = (Vector3){0, 0, 0};
+            camera.up = (Vector3){0, 1, 0};
+        }
+
         printf("%f, %f, %f\n", rate.roll, rate.pitch, rate.yaw);
         float dt = GetFrameTime();
         
-        angle.roll += dt * rate.roll;
-        angle.yaw += dt * rate.yaw;
-        angle.pitch += dt * rate.pitch;
+        angle.roll = fmodf(angle.roll + dt * rate.roll, 2*PI);
+        angle.pitch = fmodf(angle.pitch + (-dt) * rate.pitch, 2*PI);
+        angle.yaw = fmodf(angle.yaw + (-dt) * rate.yaw, 2*PI);
 
-        uav.transform = MatrixRotateXYZ((Vector3){angle.roll, angle.pitch, angle.yaw});
-        
         UpdateCamera(&camera, CAMERA_FREE);
         
         BeginDrawing();
+        BeginMode3D(camera);
         {
             ClearBackground(RAYWHITE);
 
-            BeginMode3D(camera);
+            DrawGrid(30, 10);
 
 
-            
-            DrawGrid(20, 10);
+            rlPushMatrix();
+            {
+                //  North-East-Down (NED) system
+                Matrix mat = MatrixRotateXYZ((Vector3) {DEG2RAD*90, 0, 0});
+                rlLoadIdentity();
+                rlMultMatrixf(MatrixToFloat(mat));
 
+                // This makes UAV point towards positive X initially. 
+                Matrix model = MatrixRotateXYZ((Vector3) {-PI/2, PI/2, 0});
+                Matrix imu_rotation = MatrixRotateXYZ((Vector3){angle.roll, angle.pitch, angle.yaw}); 
+                
+                uav.transform = MatrixMultiply(model, imu_rotation);
+                DrawModel(uav, Vector3Zero(), 1.0, WHITE);
 
-            DrawModel(uav, Vector3Zero(), 1.0, WHITE);
-            draw_arrow(Vector3Zero(), (Vector3) {1.0, 0,   0  }, 50, 2, RED);
-            draw_arrow(Vector3Zero(), (Vector3) {0,   1.0, 0  }, 50, 2, GREEN);
-            draw_arrow(Vector3Zero(), (Vector3) {0,   0,   1.0}, 50, 2, BLUE);
+                draw_arrow(Vector3Zero(), (Vector3) {1.0, 0,   0  }, 50, 2, RED);
+                draw_arrow(Vector3Zero(), (Vector3) {0,   1.0, 0  }, 50, 2, GREEN);
+                draw_arrow(Vector3Zero(), (Vector3) {0,   0,   1.0}, 50, 2, BLUE);
 
-            EndMode3D();
+            }
+            rlPopMatrix();
+
         }
         EndDrawing();
     }
