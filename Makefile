@@ -1,7 +1,7 @@
 all: imu_visualizer
 
 CC=gcc 
-CFLAGS=-Wall -Wextra -g
+CFLAGS=-Wall -Wextra -ggdb
 SRC=main.c draw.c
 
 imu_visualizer: $(SRC)

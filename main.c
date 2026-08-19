@@ -14,6 +14,9 @@
 
 #define WIDTH 1600
 #define HEIGHT 900
+
+// in m/s^2
+#define GRAVITATIONAL_ACCELERATION 9.80665f
     
 //partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
 int open_serial(const char* path) {
@@ -52,6 +55,21 @@ int open_serial(const char* path) {
     return fd; 
 }
 
+void print_matrix(Matrix x) {
+    printf("{\n");
+    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m0, x.m4, x.m8, x.m12);
+    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m1, x.m5, x.m9, x.m13);
+    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m2, x.m6, x.m10, x.m14);
+    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m3, x.m7, x.m11, x.m15);
+    printf("}\n");
+}
+
+void draw_basis(Vector3 start_pos, Matrix basis) {
+    draw_arrow(start_pos, (Vector3) {basis.m0, basis.m1,  basis.m2, }, 50, 1, RED);
+    draw_arrow(start_pos, (Vector3) {basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
+    draw_arrow(start_pos, (Vector3) {basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
+}
+
 
 int main() { 
     const char* path = "/dev/ttyACM0";
@@ -61,40 +79,43 @@ int main() {
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIDTH, HEIGHT, "IMU Visualizer");
-    SetTargetFPS(60);
+    SetTargetFPS(120);
     Camera camera = {0};
 
     const int font_size = 40;
     Font font = LoadFontEx("./resources/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
 
-    camera.position   = (Vector3) { -120, 120, 0 };
+    camera.position   = (Vector3) { -90, 90, 0 };
     camera.target     = (Vector3) { 0, 0, 0 };
     camera.up         = (Vector3) { 0, 1, 0 };
     camera.fovy       = 80;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    Model uav = LoadModel("./resources/plane.obj");
+    Model model = LoadModel("./resources/plane.obj");
     Texture2D texture = LoadTexture("./resources/plane_diffuse.png");
     SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
-    uav.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
+    model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
     DisableCursor();
 
-    EulerAngle rate = {0, 0, 0}; 
-    EulerAngle angle = {0, 0, 0};
-
-    static char line[128] = { 0 };
+    IMUMeasurements imu = {0};
+    Uav uav = {0};
+    uav.basis = MatrixIdentity();
+    static char line[256] = { 0 };
     while (!WindowShouldClose()) {
         size_t parse_pos = 0;
         char c;
         while (read(fd, &c, 1) == 1) {
             if (c == '\n') {
                 line[parse_pos] = '\0';
-                EulerAngle read = {0};
-                if (sscanf(line, "%f, %f, %f", &read.roll, &read.pitch, &read.yaw) == 3) {
-                    read.pitch *= DEG2RAD;
-                    read.yaw *= DEG2RAD;
-                    read.roll *= DEG2RAD;
-                    rate = read; 
+                IMUMeasurements read; 
+                if (sscanf(line, "%f, %f, %f, %f, %f, %f",
+                           &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
+                           &read.rotation_rate.roll, &read.rotation_rate.pitch, &read.rotation_rate.yaw
+                    ) == 6) {
+                    read.rotation_rate.pitch *= DEG2RAD;
+                    read.rotation_rate.yaw *= DEG2RAD;
+                    read.rotation_rate.roll *= DEG2RAD;
+                    imu = read; 
                 }
                 parse_pos = 0;
             }
@@ -105,22 +126,24 @@ int main() {
         }
 
         if (IsKeyDown(KEY_R)) {
-            angle = (EulerAngle) { 0 };
+            uav.angle = (EulerAngle) { 0 };
+            uav.x = Vector3Zero();
+            uav.basis = MatrixIdentity();
         }
         if (IsKeyDown(KEY_Z)) {
             camera.target = (Vector3){0, 0, 0};
             camera.up = (Vector3){0, 1, 0};
         }
 
-        printf("%f, %f, %f\n", rate.roll, rate.pitch, rate.yaw);
         float dt = GetFrameTime();
         
         // TODO: do not multiply by - manually
-        angle.roll = fmodf(angle.roll + dt * rate.roll, 2*PI);
-        angle.pitch = fmodf(angle.pitch + (-dt) * rate.pitch, 2*PI);
-        angle.yaw = fmodf(angle.yaw + (-dt) * rate.yaw, 2*PI);
+        uav.angle.roll  = fmodf(uav.angle.roll + dt * imu.rotation_rate.roll, 2*PI);
+        uav.angle.pitch = fmodf(uav.angle.pitch + (-dt) * imu.rotation_rate.pitch, 2*PI);
+        uav.angle.yaw   = fmodf(uav.angle.yaw + (-dt) * imu.rotation_rate.yaw, 2*PI);
+        uav.basis = MatrixRotateXYZ((Vector3){uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
 
-        
+
         UpdateCamera(&camera, CAMERA_FREE);
         BeginDrawing();
         BeginMode3D(camera);
@@ -138,21 +161,19 @@ int main() {
                 rlMultMatrixf(MatrixToFloat(mat));
 
                 // This makes UAV point towards positive X initially. 
-                Matrix model = MatrixRotateXYZ((Vector3) {-PI/2, PI/2, 0});
-                Matrix imu_rotation = MatrixRotateXYZ((Vector3){angle.roll, angle.pitch, angle.yaw}); 
+                Matrix model_offset = MatrixRotateXYZ((Vector3) {-PI/2, PI/2, 0});
                 
-                uav.transform = MatrixMultiply(model, imu_rotation);
-                DrawModel(uav, Vector3Zero(), 1.0, WHITE);
+                model.transform = MatrixMultiply(model_offset, uav.basis);
+                DrawModel(model, uav.x, 1.0, WHITE);
 
-                draw_arrow(Vector3Zero(), (Vector3) {1.0, 0,   0  }, 50, 2, RED);
-                draw_arrow(Vector3Zero(), (Vector3) {0,   1.0, 0  }, 50, 2, GREEN);
-                draw_arrow(Vector3Zero(), (Vector3) {0,   0,   1.0}, 50, 2, BLUE);
+                draw_basis(uav.x, uav.basis);
 
             }
             rlPopMatrix();
 
         }
-        draw_ui(angle, font, font_size);
+        EndMode3D();
+        draw_ui(uav, font, font_size);
         EndDrawing();
     }
 
