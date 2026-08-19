@@ -70,6 +70,17 @@ void draw_basis(Vector3 start_pos, Matrix basis) {
     draw_arrow(start_pos, (Vector3) {basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
 }
 
+#define decomp(v) (v).x, (v).y, (v).z
+
+void uav_reset(Uav* uav) {
+    memset(uav, 0, sizeof(Uav));
+    uav->basis = MatrixIdentity();
+}
+Uav uav_new() {
+    Uav u;
+    uav_reset(&u);
+    return u;
+}
 
 int main() { 
     const char* path = "/dev/ttyACM0";
@@ -100,9 +111,9 @@ int main() {
     DisableCursor();
 
     IMUMeasurements imu = {0};
-    Uav uav = {0};
-    uav.basis = MatrixIdentity();
-    static char line[1024] = { 0 };
+    Uav uav = uav_new();
+    
+    static char line[512] = { 0 };
     size_t parse_pos = 0;
     while (!WindowShouldClose()) {
         char c;
@@ -129,10 +140,10 @@ int main() {
         }
 
         if (IsKeyDown(KEY_R)) {
-            uav.angle = (EulerAngle) { 0 };
-            uav.x = Vector3Zero();
-            uav.basis = MatrixIdentity();
+            uav_reset(&uav);
+            imu = (IMUMeasurements) { 0 };
         }
+
         if (IsKeyDown(KEY_Z)) {
             camera.target = (Vector3){0, 0, 0};
             camera.up = (Vector3){0, 1, 0};
@@ -146,10 +157,30 @@ int main() {
         float dt = GetFrameTime();
         
         // TODO: do not multiply by - manually
+        // Transform data in NED
+        Vector3 a = Vector3Transform(imu.acceleration, uav.basis);
+        imu.acceleration.y *= -1; 
+        imu.acceleration.z *= -1; 
+        imu.rotation_rate.pitch *= -1;
+        imu.rotation_rate.yaw *= -1;
+        
         uav.angle.roll  = fmodf(uav.angle.roll + dt * imu.rotation_rate.roll, 2*PI);
-        uav.angle.pitch = fmodf(uav.angle.pitch + (-dt) * imu.rotation_rate.pitch, 2*PI);
-        uav.angle.yaw   = fmodf(uav.angle.yaw + (-dt) * imu.rotation_rate.yaw, 2*PI);
+        uav.angle.pitch = fmodf(uav.angle.pitch + dt * imu.rotation_rate.pitch, 2*PI);
+        uav.angle.yaw   = fmodf(uav.angle.yaw + dt * imu.rotation_rate.yaw, 2*PI);
+
         uav.basis = MatrixRotateXYZ((Vector3){uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
+
+        // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
+        // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
+        // which includes gravitational acceleration
+        a.z += 1;
+        printf("imu = [%f %f %f], a = [%f %f %f]\n", decomp(imu.acceleration), decomp(a));
+
+        // u(t + dt) = u(t) + a(t)dt
+        // x(t + dt) = x(t) + u(t)dt
+        /* uav.u = Vector3Add(uav.u, Vector3Scale(a, dt)); */
+        /* uav.x = Vector3Add(uav.x, Vector3Scale(uav.u, dt)); */
+        
 
 
         UpdateCamera(&camera, CAMERA_FREE);
@@ -172,9 +203,10 @@ int main() {
                 Matrix model_offset = MatrixRotateXYZ((Vector3) {-PI/2, PI/2, 0});
                 
                 model.transform = MatrixMultiply(model_offset, uav.basis);
-                DrawModel(model, uav.x, 1.0, WHITE);
+                /* DrawModel(model, uav.x, 1.0, WHITE); */
 
                 draw_basis(uav.x, uav.basis);
+                draw_vector(uav.x, Vector3Scale(a, 50), 1, MAGENTA);
 
             }
             rlPopMatrix();

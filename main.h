@@ -13,8 +13,12 @@ typedef struct {
 
 typedef struct {
     Vector3 x; // position
+    Vector3 u; // speed
     Matrix basis;
     EulerAngle angle;
 } Uav;
+
+Uav uav_new();
+void uav_reset(Uav*);
 
 #endif // MAIN_H_
