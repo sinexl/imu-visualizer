@@ -90,7 +90,7 @@ int main() {
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIDTH, HEIGHT, "IMU Visualizer");
-    SetTargetFPS(120);
+    SetTargetFPS(60);
     SetExitKey(KEY_NULL);
 
     Camera camera = {0};
@@ -123,13 +123,12 @@ int main() {
                 IMUMeasurements read = {0}; 
                 if (sscanf(line, "%f, %f, %f, %f, %f, %f",
                            &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
-                           &read.rotation_rate.roll, &read.rotation_rate.pitch, &read.rotation_rate.yaw
+                           &read.angular_velocity.x, &read.angular_velocity.y, &read.angular_velocity.z
                     ) == 6) {
-                    read.rotation_rate.pitch *= DEG2RAD;
-                    read.rotation_rate.yaw *= DEG2RAD;
-                    read.rotation_rate.roll *= DEG2RAD;
+                    read.angular_velocity.y *= DEG2RAD;
+                    read.angular_velocity.z *= DEG2RAD;
+                    read.angular_velocity.x *= DEG2RAD;
                     imu = read; 
-
                 }
                 parse_pos = 0;
             }
@@ -156,26 +155,51 @@ int main() {
 
         float dt = GetFrameTime();
         
-        // TODO: do not multiply by - manually
         // Transform data in NED
-        Vector3 a = Vector3Transform(imu.acceleration, uav.basis);
-        imu.acceleration.y *= -1; 
-        imu.acceleration.z *= -1; 
-        imu.rotation_rate.pitch *= -1;
-        imu.rotation_rate.yaw *= -1;
-        
-        uav.angle.roll  = fmodf(uav.angle.roll + dt * imu.rotation_rate.roll, 2*PI);
-        uav.angle.pitch = fmodf(uav.angle.pitch + dt * imu.rotation_rate.pitch, 2*PI);
-        uav.angle.yaw   = fmodf(uav.angle.yaw + dt * imu.rotation_rate.yaw, 2*PI);
+        // TODO: do not multiply by - manually
+        /* imu.acceleration.y *= -1;  */
+        /* imu.acceleration.z *= -1;  */
+        imu.angular_velocity.y *= -1;
+        imu.angular_velocity.z *= -1;
 
-        uav.basis = MatrixRotateXYZ((Vector3){uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
+        float th = uav.angle.pitch;
+        float phi = uav.angle.roll;
+        
+        // Since IMU measures angular velocity against it's own axes, which are dependent on UAV orientation (Euler angles),
+        // the following transformation should be applied to get the euler angle rates:a
+        // dEuler/dt = B(Euler) * omega
+        // This is 3-2-1 kinematic transformation matrix
+        Matrix B = {
+            0,        sinf(phi),          cosf(phi),           0,
+            0,        cosf(th)*cosf(phi), -cosf(th)*sinf(phi), 0, 
+            cosf(th), sinf(th)*sinf(phi), sinf(th)*cosf(phi),  0,
+            0,        0,                  0,                   1
+        }; 
+        assert(fabs(th - PI/2) >= 1e-3 && "TODO: Deal with gimbal lock."); 
+        assert(fabs(th + PI/2) >= 1e-3 && "TODO: Deal with gimbal lock."); 
+        B = MatrixMultiplyValue(B, 1/cos(th));
+        print_matrix(B);
+        imu.angular_velocity = Vector3Transform(imu.angular_velocity, B);
+        // Now imu.angular_velocity contains [psi, th, phi], thus swapping is required.
+        EulerAngle euler_rates = {
+            .roll = imu.angular_velocity.z,
+            .pitch = imu.angular_velocity.y,
+            .yaw = imu.angular_velocity.x
+        }; 
+        printf("Euler rates: %f %f %f\n", euler_rates.roll, euler_rates.pitch, euler_rates.yaw);
+
+        
+        uav.angle.roll  = fmodf(uav.angle.roll + dt * euler_rates.roll, 2*PI);
+        uav.angle.pitch = fmodf(uav.angle.pitch + dt * euler_rates.pitch, 2*PI);
+        uav.angle.yaw   = fmodf(uav.angle.yaw + dt * euler_rates.yaw, 2*PI);
+
+        uav.basis = MatrixRotateZYX((Vector3){uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
 
         // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
         // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
         // which includes gravitational acceleration
-        a.z += 1;
-        printf("imu = [%f %f %f], a = [%f %f %f]\n", decomp(imu.acceleration), decomp(a));
-
+        /* a.z += 1; */
+        /* printf("imu = [%f %f %f], a = [%f %f %f]\n", decomp(imu.acceleration), decomp(a)); */
         // u(t + dt) = u(t) + a(t)dt
         // x(t + dt) = x(t) + u(t)dt
         /* uav.u = Vector3Add(uav.u, Vector3Scale(a, dt)); */
@@ -195,18 +219,18 @@ int main() {
             rlPushMatrix();
             {
                 //  North-East-Down (NED) system
-                Matrix mat = MatrixRotateXYZ((Vector3) {DEG2RAD*90, 0, 0});
+                Matrix mat = MatrixRotateZYX((Vector3) {DEG2RAD*90, 0, 0});
                 rlLoadIdentity();
                 rlMultMatrixf(MatrixToFloat(mat));
 
                 // This makes UAV point towards positive X initially. 
-                Matrix model_offset = MatrixRotateXYZ((Vector3) {-PI/2, PI/2, 0});
+                Matrix model_offset = MatrixRotateZYX((Vector3) {-PI/2, PI/2, 0});
                 
                 model.transform = MatrixMultiply(model_offset, uav.basis);
                 /* DrawModel(model, uav.x, 1.0, WHITE); */
 
                 draw_basis(uav.x, uav.basis);
-                draw_vector(uav.x, Vector3Scale(a, 50), 1, MAGENTA);
+                draw_vector(uav.x, Vector3Transform(Vector3Scale(imu.angular_velocity, 50), uav.basis), 1, ORANGE);
 
             }
             rlPopMatrix();

@@ -7,8 +7,10 @@ typedef struct {
 } EulerAngle;
 
 typedef struct {
+    // Translational acceleration with respect to IMU's local axes.
     Vector3 acceleration;
-    EulerAngle rotation_rate;
+    // Angular velocity with respect to IMU's local axes.
+    Vector3 angular_velocity;
 } IMUMeasurements;
 
 typedef struct {
