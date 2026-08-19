@@ -80,6 +80,8 @@ int main() {
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIDTH, HEIGHT, "IMU Visualizer");
     SetTargetFPS(120);
+    SetExitKey(KEY_NULL);
+
     Camera camera = {0};
 
     const int font_size = 40;
@@ -100,14 +102,14 @@ int main() {
     IMUMeasurements imu = {0};
     Uav uav = {0};
     uav.basis = MatrixIdentity();
-    static char line[256] = { 0 };
+    static char line[1024] = { 0 };
+    size_t parse_pos = 0;
     while (!WindowShouldClose()) {
-        size_t parse_pos = 0;
         char c;
         while (read(fd, &c, 1) == 1) {
             if (c == '\n') {
                 line[parse_pos] = '\0';
-                IMUMeasurements read; 
+                IMUMeasurements read = {0}; 
                 if (sscanf(line, "%f, %f, %f, %f, %f, %f",
                            &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
                            &read.rotation_rate.roll, &read.rotation_rate.pitch, &read.rotation_rate.yaw
@@ -116,6 +118,7 @@ int main() {
                     read.rotation_rate.yaw *= DEG2RAD;
                     read.rotation_rate.roll *= DEG2RAD;
                     imu = read; 
+
                 }
                 parse_pos = 0;
             }
@@ -134,6 +137,11 @@ int main() {
             camera.target = (Vector3){0, 0, 0};
             camera.up = (Vector3){0, 1, 0};
         }
+
+        if (IsKeyPressed(KEY_ESCAPE) && IsCursorHidden())
+            EnableCursor();
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !IsCursorHidden())
+            DisableCursor();
 
         float dt = GetFrameTime();
         
