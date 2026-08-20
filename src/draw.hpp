@@ -1,6 +1,6 @@
 #ifndef DRAW_H_
 #define DRAW_H_
-#include "main.h"
+#include "main.hpp"
 #include "raylib.h"
 
 void draw_ui(Uav uav, Font font, int font_size);

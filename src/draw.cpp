@@ -1,11 +1,11 @@
-#include "draw.h"
+#include "draw.hpp"
 #include "raylib.h"
 #include "raymath.h"
 #include <assert.h>
 
 void write_seq(const char* text, int* padding_x, int* padding_y, int font_size, Color color, Font font) {
     int size = MeasureText(text, font_size);
-    DrawTextEx(font, text, (Vector2){*padding_x, *padding_y}, font_size, 1, color);
+    DrawTextEx(font, text, {static_cast<float>(*padding_x), static_cast<float>(*padding_y)}, font_size, 1, color);
     *padding_x += 10 + size;
 }
 
@@ -19,7 +19,7 @@ void draw_ui(Uav uav, Font font, int font_size) {
     write_seq("Z", &padding_x, &padding_y, font_size, BLUE, font);
     DrawTextEx(font,
                TextFormat("%.3f, %.3f, %.3f", RAD2DEG*uav.x.x, RAD2DEG*uav.x.y, RAD2DEG*uav.x.z),
-               (Vector2) {padding_x, padding_y}, font_size, 1, WHITE);
+               {static_cast<float>(padding_x), static_cast<float>(padding_y)}, font_size, 1, WHITE);
     padding_y += 10 + font_size;
 
     padding_x = border_padding;
@@ -28,19 +28,18 @@ void draw_ui(Uav uav, Font font, int font_size) {
     write_seq("Yaw", &padding_x, &padding_y, font_size, BLUE, font);
     DrawTextEx(font,
                TextFormat("%.3f, %.3f, %.3f", RAD2DEG*uav.angle.roll, RAD2DEG*uav.angle.pitch, RAD2DEG*uav.angle.yaw),
-               (Vector2) {padding_x, padding_y}, font_size, 1, WHITE);
+               {static_cast<float>(padding_x), static_cast<float>(padding_y)}, font_size, 1, WHITE);
 }
 
 void draw_arrow(Vector3 start_pos, Vector3 direction, float len, float thickness, Color color)  {
     float vector_len = Vector3Length(direction);
     if (fabs(vector_len) < 1e-4) return;  // zero length vector
     assert(fabs(vector_len - 1) < 1e-2);
-    Vector3 end_pos = Vector3Add(start_pos, Vector3Scale(direction, len));
+    Vector3 end_pos = start_pos + direction * len;
     DrawCylinderEx(start_pos, end_pos, thickness, thickness, 100, color);
 
-    Vector3 arrow_displacement = Vector3Scale(direction, 10);
 
-    DrawCylinderEx(Vector3Add(end_pos, arrow_displacement), end_pos, 0, thickness * 2, 100, color);
+    DrawCylinderEx(end_pos + direction * 10, end_pos, 0, thickness * 2, 100, color);
 }
 
 

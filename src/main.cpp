@@ -1,4 +1,4 @@
-#include "main.h"
+#include "main.hpp"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -7,7 +7,7 @@
 #include <sys/select.h>
 #include <unistd.h>
 #include <termios.h>
-#include "draw.h"
+#include "draw.hpp"
 #include "raylib.h"
 #include "raymath.h"
 #include "rlgl.h"
@@ -17,6 +17,12 @@
 
 // in m/s^2
 #define GRAVITATIONAL_ACCELERATION 9.80665f
+
+// Raylib does this in a dumb way: Instead of A*x, they define x*A which yields the same result mathematically makes no sense
+Vector3 operator*(Matrix A, Vector3 x) {
+    return Vector3Transform(x, A);
+}
+
     
 //partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
 int open_serial(const char* path) {
@@ -55,7 +61,7 @@ int open_serial(const char* path) {
     return fd; 
 }
 
-#define RESOURCES_DIR "../resources/"
+#define RESOURCES_DIR "./resources/"
 
 void print_matrix(Matrix x) {
     printf("{\n");
@@ -89,7 +95,7 @@ void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size,
     while (read(fd, &c, 1) == 1) {
         if (c == '\n') {
             line[*parse_pos] = '\0';
-            IMUMeasurements read = {0};
+            IMUMeasurements read = {};
             if (sscanf(line, "%f, %f, %f, %f, %f, %f",
                         &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
                         &read.angular_velocity.x, &read.angular_velocity.y, &read.angular_velocity.z
@@ -120,7 +126,7 @@ int main() {
     SetTargetFPS(60);
     SetExitKey(KEY_NULL);
 
-    Camera camera = {0};
+    Camera camera = {};
 
     const int font_size = 40;
 
@@ -138,38 +144,17 @@ int main() {
     model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
     DisableCursor();
 
-    IMUMeasurements imu = {0};
+    IMUMeasurements imu = {};
     Uav uav = uav_new();
     
     static char line[512] = { 0 };
     size_t parse_pos = 0;
     while (!WindowShouldClose()) {
-        char c;
-        while (read(fd, &c, 1) == 1) {
-            if (c == '\n') {
-                line[parse_pos] = '\0';
-                IMUMeasurements read = {0}; 
-                if (sscanf(line, "%f, %f, %f, %f, %f, %f",
-                           &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
-                           &read.angular_velocity.x, &read.angular_velocity.y, &read.angular_velocity.z
-                    ) == 6) {
-                    read.angular_velocity.y *= DEG2RAD;
-                    read.angular_velocity.z *= DEG2RAD;
-                    read.angular_velocity.x *= DEG2RAD;
-                    imu = read; 
-                }
-                parse_pos = 0;
-            }
-            else if (c != '\r' && parse_pos <= sizeof(line) - 2) {
-                line[parse_pos] = c;
-                parse_pos++;
-            }
-        }
         parse_serial_async(fd, &parse_pos, line, sizeof(line), &imu);
 
         if (IsKeyDown(KEY_R)) {
             uav_reset(&uav);
-            imu = (IMUMeasurements) { 0 };
+            imu = (IMUMeasurements) {};
         }
 
         if (IsKeyDown(KEY_Z)) {
@@ -207,9 +192,9 @@ int main() {
         }; 
         assert(fabs(th - PI/2) >= 1e-3 && "TODO: Deal with gimbal lock."); 
         assert(fabs(th + PI/2) >= 1e-3 && "TODO: Deal with gimbal lock."); 
-        B = MatrixMultiplyValue(B, 1/cos(th));
+        B *= (1/cos(th));
         print_matrix(B);
-        imu.angular_velocity = Vector3Transform(imu.angular_velocity, B);
+        imu.angular_velocity = B*imu.angular_velocity;
         // Now imu.angular_velocity contains [psi, th, phi], thus swapping is required.
         EulerAngle euler_rates = {
             .roll = imu.angular_velocity.z,
@@ -255,11 +240,11 @@ int main() {
                 // This makes UAV point towards positive X initially. 
                 Matrix model_offset = MatrixRotateZYX((Vector3) {-PI/2, 0, -PI/2});
                 
-                model.transform = MatrixMultiply(model_offset, uav.basis);
+                model.transform = model_offset * uav.basis;
                 DrawModel(model, uav.x, 1.0, WHITE);
 
                 draw_basis(uav.x, uav.basis);
-                draw_vector(uav.x, Vector3Transform(Vector3Scale(imu.angular_velocity, 50), uav.basis), 1, ORANGE);
+                draw_vector(uav.x, uav.basis*imu.angular_velocity*50, 1, ORANGE);
 
             }
             rlPopMatrix();
