@@ -55,6 +55,8 @@ int open_serial(const char* path) {
     return fd; 
 }
 
+#define RESOURCES_DIR "../resources/"
+
 void print_matrix(Matrix x) {
     printf("{\n");
     printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m0, x.m4, x.m8, x.m12);
@@ -82,6 +84,31 @@ Uav uav_new() {
     return u;
 }
 
+void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size, IMUMeasurements* imu) {
+    char c;
+    while (read(fd, &c, 1) == 1) {
+        if (c == '\n') {
+            line[*parse_pos] = '\0';
+            IMUMeasurements read = {0};
+            if (sscanf(line, "%f, %f, %f, %f, %f, %f",
+                        &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
+                        &read.angular_velocity.x, &read.angular_velocity.y, &read.angular_velocity.z
+                ) == 6) {
+                read.angular_velocity.y *= DEG2RAD;
+                read.angular_velocity.z *= DEG2RAD;
+                read.angular_velocity.x *= DEG2RAD;
+                *imu = read; 
+            }
+            *parse_pos = 0;
+        }
+        else if (c != '\r' && *parse_pos <= line_size - 2) {
+            line[*parse_pos] = c;
+            (*parse_pos)++;
+        }
+    }
+    
+}
+
 int main() { 
     const char* path = "/dev/ttyACM0";
 
@@ -96,16 +123,17 @@ int main() {
     Camera camera = {0};
 
     const int font_size = 40;
-    Font font = LoadFontEx("./resources/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
 
+    UpdateCamera(&camera, CAMERA_FREE);
     camera.position   = (Vector3) { -90, 90, 0 };
     camera.target     = (Vector3) { 0, 0, 0 };
     camera.up         = (Vector3) { 0, 1, 0 };
     camera.fovy       = 80;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    Model model = LoadModel("./resources/plane.obj");
-    Texture2D texture = LoadTexture("./resources/plane_diffuse.png");
+    Font font = LoadFontEx(RESOURCES_DIR"/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
+    Model model = LoadModel(RESOURCES_DIR"/plane.obj");
+    Texture2D texture = LoadTexture(RESOURCES_DIR"/plane_diffuse.png");
     SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
     model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
     DisableCursor();
@@ -137,6 +165,7 @@ int main() {
                 parse_pos++;
             }
         }
+        parse_serial_async(fd, &parse_pos, line, sizeof(line), &imu);
 
         if (IsKeyDown(KEY_R)) {
             uav_reset(&uav);
@@ -152,6 +181,7 @@ int main() {
             EnableCursor();
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !IsCursorHidden())
             DisableCursor();
+        UpdateCamera(&camera, CAMERA_FREE);
 
         float dt = GetFrameTime();
         
@@ -207,7 +237,6 @@ int main() {
         
 
 
-        UpdateCamera(&camera, CAMERA_FREE);
         BeginDrawing();
         BeginMode3D(camera);
         {
@@ -224,10 +253,10 @@ int main() {
                 rlMultMatrixf(MatrixToFloat(mat));
 
                 // This makes UAV point towards positive X initially. 
-                Matrix model_offset = MatrixRotateZYX((Vector3) {-PI/2, PI/2, 0});
+                Matrix model_offset = MatrixRotateZYX((Vector3) {-PI/2, 0, -PI/2});
                 
                 model.transform = MatrixMultiply(model_offset, uav.basis);
-                /* DrawModel(model, uav.x, 1.0, WHITE); */
+                DrawModel(model, uav.x, 1.0, WHITE);
 
                 draw_basis(uav.x, uav.basis);
                 draw_vector(uav.x, Vector3Transform(Vector3Scale(imu.angular_velocity, 50), uav.basis), 1, ORANGE);
