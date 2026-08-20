@@ -1,12 +1,12 @@
 [
   {
-    "file": "main.c",
+    "file": "./src/main.c",
     "arguments": [
       "/usr/bin/gcc",
       "-Wall",
       "-Wextra",
-      "-g",
-      "main.c",
+      "-ggdb",
+      "./src/main.c",
       "-I./raylib/include",
       "-o",
       "imu_visualizer"
@@ -15,13 +15,13 @@
     "output": "imu_visualizer"
   },
   {
-    "file": "draw.c",
+    "file": "./src/draw.c",
     "arguments": [
       "/usr/bin/gcc",
       "-Wall",
       "-Wextra",
-      "-g",
-      "draw.c",
+      "-ggdb",
+      "./src/draw.c",
       "-I./raylib/include",
       "-o",
       "imu_visualizer"
