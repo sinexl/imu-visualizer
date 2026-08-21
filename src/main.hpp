@@ -1,10 +1,8 @@
 #ifndef MAIN_H_
 #define MAIN_H_
 
+#include "euler_angle.hpp"
 #include "raylib.h"
-typedef struct {
-    float roll, pitch, yaw;
-} EulerAngle;
 
 typedef struct {
     // Translational acceleration with respect to IMU's local axes.
@@ -19,6 +17,8 @@ typedef struct {
     Matrix basis;
     EulerAngle angle;
 } Uav;
+
+#define decomp(v) (v).x, (v).y, (v).z
 
 Uav uav_new();
 void uav_reset(Uav*);

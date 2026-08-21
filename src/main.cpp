@@ -1,4 +1,5 @@
-#include "main.hpp"
+#define EULER_ANGLE_IMPLEMENTATION
+#include "euler_angle.hpp"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -11,19 +12,19 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "rlgl.h"
-
+#include "main.hpp"
 #define WIDTH 1600
 #define HEIGHT 900
 
 // in m/s^2
 #define GRAVITATIONAL_ACCELERATION 9.80665f
+#define RESOURCES_DIR "./resources/"
 
 // Raylib does this in a dumb way: Instead of A*x, they define x*A which yields the same result mathematically makes no sense
 Vector3 operator*(Matrix A, Vector3 x) {
     return Vector3Transform(x, A);
 }
 
-    
 //partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
 int open_serial(const char* path) {
     int fd = open(path, O_RDONLY | O_NOCTTY | O_NONBLOCK);
@@ -61,7 +62,6 @@ int open_serial(const char* path) {
     return fd; 
 }
 
-#define RESOURCES_DIR "./resources/"
 
 void print_matrix(Matrix x) {
     printf("{\n");
@@ -73,12 +73,11 @@ void print_matrix(Matrix x) {
 }
 
 void draw_basis(Vector3 start_pos, Matrix basis) {
-    draw_arrow(start_pos, (Vector3) {basis.m0, basis.m1,  basis.m2, }, 50, 1, RED);
-    draw_arrow(start_pos, (Vector3) {basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
-    draw_arrow(start_pos, (Vector3) {basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
+    draw_arrow(start_pos, { basis.m0, basis.m1,  basis.m2, }, 50, 1, RED);
+    draw_arrow(start_pos, { basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
+    draw_arrow(start_pos, { basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
 }
 
-#define decomp(v) (v).x, (v).y, (v).z
 
 void uav_reset(Uav* uav) {
     memset(uav, 0, sizeof(Uav));
@@ -89,6 +88,7 @@ Uav uav_new() {
     uav_reset(&u);
     return u;
 }
+
 
 void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size, IMUMeasurements* imu) {
     char c;
@@ -115,6 +115,33 @@ void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size,
     
 }
 
+
+EulerAngle angular_velocity_to_euler_rates(Vector3 angular_velocity, EulerAngle uav_angle) {
+    float th = uav_angle.pitch;
+    float phi = uav_angle.roll;
+
+    // Since IMU measures angular velocity against it's own axes, which are dependent on UAV orientation (Euler angles),
+    // the following transformation should be applied to get the euler angle rates from angular velocity
+    // dEuler/dt = B(Euler) * omega
+    // This is 3-2-1 kinematic transformation matrix
+    Matrix B = {
+        0,        sinf(phi),          cosf(phi),           0,
+        0,        cosf(th)*cosf(phi), -cosf(th)*sinf(phi), 0,
+        cosf(th), sinf(th)*sinf(phi), sinf(th)*cosf(phi),  0,
+        0,        0,                  0,                   1
+    };
+    assert(fabs(th - PI/2) >= 1e-3 && "TODO: Deal with gimbal lock.");
+    assert(fabs(th + PI/2) >= 1e-3 && "TODO: Deal with gimbal lock.");
+    B *= (1/cos(th));
+    // print_matrix(B);
+    Vector3 euler =  B*angular_velocity;
+    // Now euler contains [psi, th, phi], thus swapping is required.
+    return {
+        euler.z, // roll
+        euler.y, // pitch
+        euler.x  // yaw
+    };
+}
 int main() { 
     const char* path = "/dev/ttyACM0";
 
@@ -130,12 +157,12 @@ int main() {
 
     const int font_size = 40;
 
-    UpdateCamera(&camera, CAMERA_FREE);
-    camera.position   = (Vector3) { -90, 90, 0 };
-    camera.target     = (Vector3) { 0, 0, 0 };
-    camera.up         = (Vector3) { 0, 1, 0 };
+    camera.position   =  { -90, 90, 0 };
+    camera.target     =  { 0, 0, 0 };
+    camera.up         =  { 0, 1, 0 };
     camera.fovy       = 80;
     camera.projection = CAMERA_PERSPECTIVE;
+    UpdateCamera(&camera, CAMERA_FREE);
 
     Font font = LoadFontEx(RESOURCES_DIR"/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
     Model model = LoadModel(RESOURCES_DIR"/plane.obj");
@@ -158,8 +185,8 @@ int main() {
         }
 
         if (IsKeyDown(KEY_Z)) {
-            camera.target = (Vector3){0, 0, 0};
-            camera.up = (Vector3){0, 1, 0};
+            camera.target = {0, 0, 0};
+            camera.up = {0, 1, 0};
         }
 
         if (IsKeyPressed(KEY_ESCAPE) && IsCursorHidden())
@@ -172,43 +199,37 @@ int main() {
         
         // Transform data in NED
         // TODO: do not multiply by - manually
-        /* imu.acceleration.y *= -1;  */
-        /* imu.acceleration.z *= -1;  */
-        imu.angular_velocity.y *= -1;
-        imu.angular_velocity.z *= -1;
-
-        float th = uav.angle.pitch;
-        float phi = uav.angle.roll;
+        // imu.acceleration.y *= -1;
+        // imu.acceleration.z *= -1;
+        // imu.angular_velocity.y *= -1;
+        // imu.angular_velocity.z *= -1;
         
-        // Since IMU measures angular velocity against it's own axes, which are dependent on UAV orientation (Euler angles),
-        // the following transformation should be applied to get the euler angle rates:a
-        // dEuler/dt = B(Euler) * omega
-        // This is 3-2-1 kinematic transformation matrix
-        Matrix B = {
-            0,        sinf(phi),          cosf(phi),           0,
-            0,        cosf(th)*cosf(phi), -cosf(th)*sinf(phi), 0, 
-            cosf(th), sinf(th)*sinf(phi), sinf(th)*cosf(phi),  0,
-            0,        0,                  0,                   1
-        }; 
-        assert(fabs(th - PI/2) >= 1e-3 && "TODO: Deal with gimbal lock."); 
-        assert(fabs(th + PI/2) >= 1e-3 && "TODO: Deal with gimbal lock."); 
-        B *= (1/cos(th));
-        print_matrix(B);
-        imu.angular_velocity = B*imu.angular_velocity;
-        // Now imu.angular_velocity contains [psi, th, phi], thus swapping is required.
-        EulerAngle euler_rates = {
-            .roll = imu.angular_velocity.z,
-            .pitch = imu.angular_velocity.y,
-            .yaw = imu.angular_velocity.x
-        }; 
-        printf("Euler rates: %f %f %f\n", euler_rates.roll, euler_rates.pitch, euler_rates.yaw);
+        const Matrix NED = MatrixRotateX(PI);
+
+        Vector3 omega = NED*imu.angular_velocity;
+
+        EulerAngle euler_rates = angular_velocity_to_euler_rates(omega, uav.angle);
+
+        EulerAngle gyroscope_estimate = uav.angle + euler_rates * dt; 
+
+        EulerAngle accelerometer_estimate = {
+            atan2f(imu.acceleration.y, imu.acceleration.z),
+            atan2f(imu.acceleration.x, sqrtf(powf(imu.acceleration.y, 2) + powf(imu.acceleration.z, 2))),
+            gyroscope_estimate.yaw, // Yaw could not be estimated from accelerometer data, since
+                                    // Yawing doesn't affect gravity
+        };
+
+        const float filter_alpha = 0.9; // complementary filter constant. 
+        // Apply complementary filter: angle(t + 1) = a * (angle(t) + euler_rates(t)*dt) + (1 - a)*(accelerometer_estimate) 
+        uav.angle = filter_alpha*gyroscope_estimate + (1 - filter_alpha)*accelerometer_estimate;
+        if (uav.angle.isnan()) { 
+            fprintf(stderr, "Error: nan angle: %f %f %f\n", uav.angle.roll, uav.angle.pitch, uav.angle.yaw);
+            exit(2);
+        }
 
         
-        uav.angle.roll  = fmodf(uav.angle.roll + dt * euler_rates.roll, 2*PI);
-        uav.angle.pitch = fmodf(uav.angle.pitch + dt * euler_rates.pitch, 2*PI);
-        uav.angle.yaw   = fmodf(uav.angle.yaw + dt * euler_rates.yaw, 2*PI);
-
-        uav.basis = MatrixRotateZYX((Vector3){uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
+        
+        uav.basis = MatrixRotateZYX({uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
 
         // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
         // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
@@ -233,25 +254,25 @@ int main() {
             rlPushMatrix();
             {
                 //  North-East-Down (NED) system
-                Matrix mat = MatrixRotateZYX((Vector3) {DEG2RAD*90, 0, 0});
+                Matrix mat = MatrixRotateZYX({DEG2RAD*90, 0, 0});
                 rlLoadIdentity();
                 rlMultMatrixf(MatrixToFloat(mat));
 
                 // This makes UAV point towards positive X initially. 
-                Matrix model_offset = MatrixRotateZYX((Vector3) {-PI/2, 0, -PI/2});
+                Matrix model_offset = MatrixRotateZYX({-PI/2, 0, -PI/2});
                 
                 model.transform = model_offset * uav.basis;
                 DrawModel(model, uav.x, 1.0, WHITE);
 
                 draw_basis(uav.x, uav.basis);
-                draw_vector(uav.x, uav.basis*imu.angular_velocity*50, 1, ORANGE);
+                draw_vector(uav.x, uav.basis*imu.acceleration*10, 1, ORANGE);
 
             }
             rlPopMatrix();
 
         }
         EndMode3D();
-        draw_ui(uav, font, font_size);
+        draw_ui(uav, gyroscope_estimate, accelerometer_estimate, font, font_size);
         EndDrawing();
     }
 
