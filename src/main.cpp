@@ -148,7 +148,7 @@ int main() {
             uav.angle.yaw = saved_angles.yaw;
         if (settings.lock.roll)
             uav.angle.roll = saved_angles.roll;
-
+        uav.basis = MatrixRotateZYX({uav.angle.roll, uav.angle.pitch, uav.angle.yaw});
         // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
         // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
         // which includes gravitational acceleration
@@ -192,6 +192,7 @@ int main() {
         }
         EndMode3D();
 
+        draw_ui(uav, estimate.gyroscope, estimate.accelerometer, font, font_size);
         rlImGuiBegin();
         {
             ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID,
@@ -211,7 +212,6 @@ int main() {
         rlImGuiEnd();
 
 
-        draw_ui(uav, estimate.gyroscope, estimate.accelerometer, font, font_size);
         EndDrawing();
     }
 

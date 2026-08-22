@@ -28,6 +28,7 @@ struct Uav{
     EulerAngle angle;
 
     Uav();
+    // This function does not update basis. Only the angle.
     MotionData update_angle(IMUMeasurements imu_ned, float dt);
     void reset();
 };

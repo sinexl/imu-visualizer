@@ -51,7 +51,6 @@ MotionData Uav::update_angle(IMUMeasurements imu_ned, float dt) {
         exit(2);
     }
 
-    basis = MatrixRotateZYX({angle.roll, angle.pitch, angle.yaw});
     return {
         .gyroscope = gyroscope_estimate,
         .accelerometer = accelerometer_estimate
