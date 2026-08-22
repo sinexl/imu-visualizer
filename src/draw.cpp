@@ -1,6 +1,7 @@
 #include "draw.hpp"
 #include "raylib.h"
 #include "raymath.h"
+#include "util.hpp"
 #include <assert.h>
 #include <stdio.h>
 

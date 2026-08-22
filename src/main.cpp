@@ -1,94 +1,30 @@
+#include "util.hpp"
 #define EULER_ANGLE_IMPLEMENTATION
 #include "euler_angle.hpp"
-#include <assert.h>
-#include <errno.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <string.h>
-#include <sys/select.h>
-#include <unistd.h>
-#include <termios.h>
-#include "draw.hpp"
+#define CSERIAL_IMPLEMENTATION
+#include "serial.h"
+
+#include <imgui.h>
+#include <rlImGui.h>
 #include "raylib.h"
 #include "raymath.h"
 #include "rlgl.h"
-#include "main.hpp"
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "draw.hpp"
 #define WIDTH 1600
 #define HEIGHT 900
 
-// in m/s^2
-#define GRAVITATIONAL_ACCELERATION 9.80665f
 #define RESOURCES_DIR "./resources/"
-
-// Raylib does this in a dumb way: Instead of A*x, they define x*A which yields the same result mathematically makes no sense
-Vector3 operator*(Matrix A, Vector3 x) {
-    return Vector3Transform(x, A);
-}
-
-//partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
-int open_serial(const char* path) {
-    int fd = open(path, O_RDONLY | O_NOCTTY | O_NONBLOCK);
-    if (fd < 0) {
-        fprintf(stderr, "Error: could not open %s: %s\n", path, strerror(errno));
-        return -1; 
-    }
-
-    struct termios tty;
-    if (tcgetattr(fd, &tty) != 0) {
-        fprintf(stderr, "Error: could not retrieve serial port info: %s\n", strerror(errno));
-    }
-    cfsetospeed(&tty, B115200);
-    cfsetispeed(&tty, B115200);
-
-    tty.c_cflag |= (CLOCAL | CREAD);    /* ignore modem controls */
-    tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;         /* 8-bit characters */
-    tty.c_cflag &= ~PARENB;     /* no parity bit */
-    tty.c_cflag &= ~CSTOPB;     /* only need 1 stop bit */
-    tty.c_cflag &= ~CRTSCTS;    /* no hardware flowcontrol */
-
-    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-    tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-    tty.c_oflag &= ~OPOST;
-
-    tty.c_cc[VMIN]  = 0;            // read doesn't block
-    tty.c_cc[VTIME] = 5;            // 0.5 seconds read timeout
-
-    if (tcsetattr (fd, TCSANOW, &tty) != 0)
-    {
-        fprintf(stderr, "Error: could not update tty: %s\n", strerror(errno));
-        return -1;
-    }
-    return fd; 
-}
-
-
-void print_matrix(Matrix x) {
-    printf("{\n");
-    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m0, x.m4, x.m8, x.m12);
-    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m1, x.m5, x.m9, x.m13);
-    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m2, x.m6, x.m10, x.m14);
-    printf("\t%.3f  %.3f  %.3f  %.3f\n", x.m3, x.m7, x.m11, x.m15);
-    printf("}\n");
-}
-
+// in m/s^2
 void draw_basis(Vector3 start_pos, Matrix basis) {
     draw_arrow(start_pos, { basis.m0, basis.m1,  basis.m2, }, 50, 1, RED);
     draw_arrow(start_pos, { basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
     draw_arrow(start_pos, { basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
 }
-
-
-void uav_reset(Uav* uav) {
-    memset(uav, 0, sizeof(Uav));
-    uav->basis = MatrixIdentity();
-}
-Uav uav_new() {
-    Uav u;
-    uav_reset(&u);
-    return u;
-}
-
 
 void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size, IMUMeasurements* imu) {
     char c;
@@ -115,33 +51,22 @@ void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size,
     
 }
 
-
-EulerAngle angular_velocity_to_euler_rates(Vector3 angular_velocity, EulerAngle uav_angle) {
-    float th = uav_angle.pitch;
-    float phi = uav_angle.roll;
-
-    // Since IMU measures angular velocity against it's own axes, which are dependent on UAV orientation (Euler angles),
-    // the following transformation should be applied to get the euler angle rates from angular velocity
-    // dEuler/dt = B(Euler) * omega
-    // This is 3-2-1 kinematic transformation matrix
-    Matrix B = {
-        0,        sinf(phi),          cosf(phi),           0,
-        0,        cosf(th)*cosf(phi), -cosf(th)*sinf(phi), 0,
-        cosf(th), sinf(th)*sinf(phi), sinf(th)*cosf(phi),  0,
-        0,        0,                  0,                   1
-    };
-    assert(fabs(th - PI/2) >= 1e-3 && "TODO: Deal with gimbal lock.");
-    assert(fabs(th + PI/2) >= 1e-3 && "TODO: Deal with gimbal lock.");
-    B *= (1/cos(th));
-    // print_matrix(B);
-    Vector3 euler =  B*angular_velocity;
-    // Now euler contains [psi, th, phi], thus swapping is required.
-    return {
-        euler.z, // roll
-        euler.y, // pitch
-        euler.x  // yaw
-    };
+void camera_init(Camera* camera) {
+    camera->position   =  { -90, 90, 0 };
+    camera->target     =  { 0, 0, 0 };
+    camera->up         =  { 0, 1, 0 };
+    camera->fovy       = 80;
+    camera->projection = CAMERA_PERSPECTIVE;
+    UpdateCamera(camera, CAMERA_FREE);
 }
+
+struct Settings {
+    struct {
+        bool roll, pitch, yaw;
+    } lock = {false, false, false};
+    bool camera_mode = false; 
+};
+
 int main() { 
     const char* path = "/dev/ttyACM0";
 
@@ -154,33 +79,36 @@ int main() {
     SetExitKey(KEY_NULL);
 
     Camera camera = {};
+    camera_init(&camera);
 
     const int font_size = 40;
-
-    camera.position   =  { -90, 90, 0 };
-    camera.target     =  { 0, 0, 0 };
-    camera.up         =  { 0, 1, 0 };
-    camera.fovy       = 80;
-    camera.projection = CAMERA_PERSPECTIVE;
-    UpdateCamera(&camera, CAMERA_FREE);
 
     Font font = LoadFontEx(RESOURCES_DIR"/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
     Model model = LoadModel(RESOURCES_DIR"/plane.obj");
     Texture2D texture = LoadTexture(RESOURCES_DIR"/plane_diffuse.png");
     SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
     model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
-    DisableCursor();
+
+
+
+    rlImGuiSetup(true);
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     IMUMeasurements imu = {};
-    Uav uav = uav_new();
+    Uav uav = {};
+
+    Settings settings = {};
     
     static char line[512] = { 0 };
     size_t parse_pos = 0;
+
+    EulerAngle saved_angles = {};
     while (!WindowShouldClose()) {
         parse_serial_async(fd, &parse_pos, line, sizeof(line), &imu);
 
         if (IsKeyDown(KEY_R)) {
-            uav_reset(&uav);
+            uav.reset();
             imu = (IMUMeasurements) {};
         }
 
@@ -188,48 +116,38 @@ int main() {
             camera.target = {0, 0, 0};
             camera.up = {0, 1, 0};
         }
-
-        if (IsKeyPressed(KEY_ESCAPE) && IsCursorHidden())
+        if (IsKeyPressed(KEY_ESCAPE) && IsCursorHidden()) {
             EnableCursor();
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !IsCursorHidden())
+            settings.camera_mode = false; 
+        }
+        if (IsKeyPressed(KEY_F) && !IsCursorHidden()) {
             DisableCursor();
-        UpdateCamera(&camera, CAMERA_FREE);
+            settings.camera_mode = true; 
+        }
+
+        if (settings.camera_mode)
+            UpdateCamera(&camera, CAMERA_FREE);
 
         float dt = GetFrameTime();
         
+
         // Transform data in NED
         // TODO: do not multiply by - manually
         // imu.acceleration.y *= -1;
         // imu.acceleration.z *= -1;
         // imu.angular_velocity.y *= -1;
         // imu.angular_velocity.z *= -1;
-        
         const Matrix NED = MatrixRotateX(PI);
-
-        Vector3 omega = NED*imu.angular_velocity;
-
-        EulerAngle euler_rates = angular_velocity_to_euler_rates(omega, uav.angle);
-
-        EulerAngle gyroscope_estimate = uav.angle + euler_rates * dt; 
-
-        EulerAngle accelerometer_estimate = {
-            atan2f(imu.acceleration.y, imu.acceleration.z),
-            atan2f(imu.acceleration.x, sqrtf(powf(imu.acceleration.y, 2) + powf(imu.acceleration.z, 2))),
-            gyroscope_estimate.yaw, // Yaw could not be estimated from accelerometer data, since
-                                    // Yawing doesn't affect gravity
-        };
-
-        const float filter_alpha = 0.9; // complementary filter constant. 
-        // Apply complementary filter: angle(t + 1) = a * (angle(t) + euler_rates(t)*dt) + (1 - a)*(accelerometer_estimate) 
-        uav.angle = filter_alpha*gyroscope_estimate + (1 - filter_alpha)*accelerometer_estimate;
-        if (uav.angle.isnan()) { 
-            fprintf(stderr, "Error: nan angle: %f %f %f\n", uav.angle.roll, uav.angle.pitch, uav.angle.yaw);
-            exit(2);
-        }
-
+        IMUMeasurements imu_ned = imu;
+        imu_ned.angular_velocity = NED*imu.angular_velocity;
         
-        
-        uav.basis = MatrixRotateZYX({uav.angle.roll, uav.angle.pitch, uav.angle.yaw}); 
+        MotionData estimate = uav.update_angle(imu_ned, dt);
+        if (settings.lock.pitch) 
+            uav.angle.pitch = saved_angles.pitch;
+        if (settings.lock.yaw)
+            uav.angle.yaw = saved_angles.yaw;
+        if (settings.lock.roll)
+            uav.angle.roll = saved_angles.roll;
 
         // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
         // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
@@ -245,6 +163,7 @@ int main() {
 
         BeginDrawing();
         BeginMode3D(camera);
+        // 3D
         {
             ClearBackground(BLACK);
 
@@ -272,10 +191,31 @@ int main() {
 
         }
         EndMode3D();
-        draw_ui(uav, gyroscope_estimate, accelerometer_estimate, font, font_size);
+
+        rlImGuiBegin();
+        {
+            ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID,
+                                         nullptr,
+                                         ImGuiDockNodeFlags_PassthruCentralNode);
+
+            ImGui::Begin("Settings");
+            {
+                if (ImGui::Checkbox("Lock Roll", &settings.lock.roll)) saved_angles.roll = uav.angle.roll;
+                if (ImGui::Checkbox("Lock Pitch", &settings.lock.pitch)) saved_angles.pitch = uav.angle.pitch; 
+                if (ImGui::Checkbox("Lock Yaw", &settings.lock.yaw)) saved_angles.yaw = uav.angle.yaw;
+            }
+            ImGui::End();
+
+            // ImGui::ShowDemoWindow(NULL);
+        }
+        rlImGuiEnd();
+
+
+        draw_ui(uav, estimate.gyroscope, estimate.accelerometer, font, font_size);
         EndDrawing();
     }
 
+    rlImGuiShutdown();
     CloseWindow();
     if (close(fd) == -1) { fprintf(stderr, "Error: could not close serial port: %s\n", strerror(errno)); return -1; }; 
 } 
