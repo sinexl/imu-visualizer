@@ -30,7 +30,7 @@ EulerAngle angular_velocity_to_euler_rates(Vector3 angular_velocity, EulerAngle 
         euler.x  // yaw
     };
 }
-MotionData Uav::update_angle(IMUMeasurements imu_ned, float dt) {
+MotionData Uav::update_angle(IMUMeasurements imu_ned, float filter_alpha, float dt) {
 
     EulerAngle euler_rates = angular_velocity_to_euler_rates(imu_ned.angular_velocity, angle);
 
@@ -43,7 +43,7 @@ MotionData Uav::update_angle(IMUMeasurements imu_ned, float dt) {
                                 // Yawing doesn't affect gravity
     };
 
-    const float filter_alpha = 0.9; // complementary filter constant.
+    
     // Apply complementary filter: angle(t + 1) = a * (angle(t) + euler_rates(t)*dt) + (1 - a)*(accelerometer_estimate)
     angle = filter_alpha*gyroscope_estimate + (1 - filter_alpha)*accelerometer_estimate;
     if (angle.isnan()) {

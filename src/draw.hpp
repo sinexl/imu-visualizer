@@ -1,9 +1,7 @@
 #ifndef DRAW_H_
 #define DRAW_H_
 #include "raylib.h"
-#include "uav.hpp"
 
-void draw_ui(Uav uav, EulerAngle gyro_estimate, EulerAngle accelerometer_estimate, Font font, int font_size);
 void draw_arrow(Vector3 start_pos, Vector3 direction, float len, float thickness, Color color);
 void draw_vector(Vector3 start_pos, Vector3 vec, float thickness, Color color);
 

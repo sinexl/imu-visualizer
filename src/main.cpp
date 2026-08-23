@@ -1,3 +1,4 @@
+#include "uav.hpp"
 #include "util.hpp"
 #define EULER_ANGLE_IMPLEMENTATION
 #include "euler_angle.hpp"
@@ -33,8 +34,8 @@ void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size,
             line[*parse_pos] = '\0';
             IMUMeasurements read = {};
             if (sscanf(line, "%f, %f, %f, %f, %f, %f",
-                        &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
-                        &read.angular_velocity.x, &read.angular_velocity.y, &read.angular_velocity.z
+                       &read.acceleration.x, &read.acceleration.y, &read.acceleration.z,
+                       &read.angular_velocity.x, &read.angular_velocity.y, &read.angular_velocity.z
                 ) == 6) {
                 read.angular_velocity.y *= DEG2RAD;
                 read.angular_velocity.z *= DEG2RAD;
@@ -48,7 +49,6 @@ void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size,
             (*parse_pos)++;
         }
     }
-    
 }
 
 void camera_init(Camera* camera) {
@@ -64,10 +64,93 @@ struct Settings {
     struct {
         bool roll, pitch, yaw;
     } lock = {false, false, false};
-    bool camera_mode = false; 
+    bool draw_model = true;
+    bool camera_mode = false;
+    float filter_alpha = 0.92f;
 };
 
-int main() { 
+void imgui_show_hud(Uav uav, MotionData estimate) {
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration       |
+        ImGuiWindowFlags_NoDocking          |
+        ImGuiWindowFlags_NoBackground       |
+        ImGuiWindowFlags_NoMove             | 
+        ImGuiWindowFlags_NoResize           |
+        ImGuiWindowFlags_NoSavedSettings    |
+        ImGuiWindowFlags_NoFocusOnAppearing | 
+        ImGuiWindowFlags_NoNav              |
+        ImGuiWindowFlags_NoInputs           |
+        ImGuiWindowFlags_AlwaysAutoResize;
+
+    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_Always);
+    
+        
+    ImGui::Begin("##hud_overlay", nullptr, flags);
+    {
+        if (ImGui::BeginTable("##hud_table", 4))
+        {
+            const float width = 160.f;
+            const ImGuiTableFlags col_flags = ImGuiTableColumnFlags_WidthFixed;
+            ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, ImVec4(0, 0, 0, 0));
+            {
+                ImGui::TableSetupColumn("Estimate");
+                ImGui::TableSetupColumn("Roll",  col_flags, width);
+                ImGui::TableSetupColumn("Pitch", col_flags, width);
+                ImGui::TableSetupColumn("Yaw",   col_flags, width);
+
+                ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+
+
+                ImGui::TableNextColumn();
+                ImGui::Text("Estimate");
+
+                ImGui::TableNextColumn();
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Roll(φ)");
+
+                ImGui::TableNextColumn();
+                ImGui::TextColored(ImVec4(0, 1, 0, 1), "Pitch(θ)");
+
+                ImGui::TableNextColumn();
+                ImGui::TextColored(ImVec4(0, 0, 1, 1), "Yaw(ψ)");
+            }
+            ImGui::PopStyleColor();
+
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Accelerometer");
+
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * estimate.accelerometer.roll);
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * estimate.accelerometer.pitch);
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * estimate.accelerometer.yaw);
+            }
+
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Gyroscope");
+
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * estimate.gyroscope.roll);
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * estimate.gyroscope.pitch);
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * estimate.gyroscope.yaw);
+            }
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Filtered");
+
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * uav.angle.roll);
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * uav.angle.pitch);
+                ImGui::TableNextColumn(); ImGui::Text("%.3f", RAD2DEG * uav.angle.yaw);
+            }
+
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
+int main() {
     const char* path = "/dev/ttyACM0";
 
     int fd;
@@ -81,19 +164,18 @@ int main() {
     Camera camera = {};
     camera_init(&camera);
 
-    const int font_size = 40;
 
-    Font font = LoadFontEx(RESOURCES_DIR"/Inter-4.1/extras/ttf/Inter-Regular.ttf", font_size, NULL, 0);
     Model model = LoadModel(RESOURCES_DIR"/plane.obj");
     Texture2D texture = LoadTexture(RESOURCES_DIR"/plane_diffuse.png");
     SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
     model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
 
 
-
     rlImGuiSetup(true);
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    ImFont* imfont = io.Fonts->AddFontFromFileTTF(RESOURCES_DIR"/Inter-4.1/extras/ttf/Inter-Regular.ttf", 18.f);
+    io.FontDefault = imfont;
 
     IMUMeasurements imu = {};
     Uav uav = {};
@@ -109,6 +191,7 @@ int main() {
 
         if (IsKeyDown(KEY_R)) {
             uav.reset();
+            saved_angles = EulerAngle{};
             imu = (IMUMeasurements) {};
         }
 
@@ -141,13 +224,10 @@ int main() {
         IMUMeasurements imu_ned = imu;
         imu_ned.angular_velocity = NED*imu.angular_velocity;
         
-        MotionData estimate = uav.update_angle(imu_ned, dt);
-        if (settings.lock.pitch) 
-            uav.angle.pitch = saved_angles.pitch;
-        if (settings.lock.yaw)
-            uav.angle.yaw = saved_angles.yaw;
-        if (settings.lock.roll)
-            uav.angle.roll = saved_angles.roll;
+        MotionData estimate = uav.update_angle(imu_ned, settings.filter_alpha, dt);
+        if (settings.lock.pitch) uav.angle.pitch = saved_angles.pitch;
+        if (settings.lock.yaw)   uav.angle.yaw = saved_angles.yaw;
+        if (settings.lock.roll)  uav.angle.roll = saved_angles.roll;
         uav.basis = MatrixRotateZYX({uav.angle.roll, uav.angle.pitch, uav.angle.yaw});
         // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
         // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
@@ -181,7 +261,8 @@ int main() {
                 Matrix model_offset = MatrixRotateZYX({-PI/2, 0, -PI/2});
                 
                 model.transform = model_offset * uav.basis;
-                DrawModel(model, uav.x, 1.0, WHITE);
+                if (settings.draw_model)
+                    DrawModel(model, uav.x, 1.0, WHITE);
 
                 draw_basis(uav.x, uav.basis);
                 draw_vector(uav.x, uav.basis*imu.acceleration*10, 1, ORANGE);
@@ -192,8 +273,11 @@ int main() {
         }
         EndMode3D();
 
-        draw_ui(uav, estimate.gyroscope, estimate.accelerometer, font, font_size);
         rlImGuiBegin();
+
+        ImGui::PushFont(NULL, 40.f);
+        imgui_show_hud(uav, estimate);
+        ImGui::PopFont();
         {
             ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID,
                                          nullptr,
@@ -207,10 +291,9 @@ int main() {
             }
             ImGui::End();
 
-            // ImGui::ShowDemoWindow(NULL);
+            ImGui::ShowDemoWindow(NULL);
         }
         rlImGuiEnd();
-
 
         EndDrawing();
     }
