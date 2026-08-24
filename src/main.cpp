@@ -90,8 +90,6 @@ struct Settings {
     }
 };
 
-
-
 const ImGuiWindowFlags hud_flags =
         ImGuiWindowFlags_NoDecoration       |
         ImGuiWindowFlags_NoDocking          |
@@ -101,13 +99,29 @@ const ImGuiWindowFlags hud_flags =
         ImGuiWindowFlags_NoSavedSettings    |
         ImGuiWindowFlags_AlwaysAutoResize;
 
-void imgui_show_hud(Uav uav, MotionData estimate) {
+struct Ui {
+    Settings& settings;
+    IMUMeasurements& imu_measurements;
+    Ui(Settings& settings, IMUMeasurements& measurements) : settings(settings), imu_measurements(measurements) {} 
+    void show_hud(Uav uav, MotionData estimate);
+    void show_settings(Uav uav);
+    void show_connection_button();
+
+
+private:
+    void show_port_selection_popup();
+    void show_port_configuration_popup();
+
+};
+
+void Ui::show_hud(Uav uav, MotionData estimate) {
     ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_Always);
-    
+
     const float flags = hud_flags |  
         ImGuiWindowFlags_NoFocusOnAppearing | 
         ImGuiWindowFlags_NoNav              |
         ImGuiWindowFlags_NoInputs;
+
     ImGui::Begin("##hud_overlay", nullptr, flags );
     {
         if (ImGui::BeginTable("##hud_table", 4))
@@ -173,7 +187,9 @@ void imgui_show_hud(Uav uav, MotionData estimate) {
     ImGui::End();
 }
 
-void imgui_show_settings(Settings& settings, Uav uav) {
+
+
+void Ui::show_settings(Uav uav) {
     ImGui::Begin("Settings");
     if (ImGui::Checkbox("Lock Roll", &settings.lock.roll)) settings.saved_angles.roll = uav.angle.roll;
     if (ImGui::Checkbox("Lock Pitch", &settings.lock.pitch)) settings.saved_angles.pitch = uav.angle.pitch; 
@@ -182,10 +198,9 @@ void imgui_show_settings(Settings& settings, Uav uav) {
     ImGui::DragFloat("Complementary Constant", &settings.filter_alpha, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_None);
 
     ImGui::End();
-
 }
 
-void imgui_show_port_selection_popup(Settings& settings) {
+void Ui::show_port_selection_popup() {
     // TODO: Select from all available serial ports.
     const char* available_ports[] = { "/dev/ttyACM0", "/dev/ttyACM1" };
     static int selected_port = 0; // Here we store our selection data as an index.
@@ -217,12 +232,12 @@ void imgui_show_port_selection_popup(Settings& settings) {
 
 }
 
-void imgui_show_port_configuration_popup(Settings& settings) {
+void Ui::show_port_configuration_popup() {
     if (ImGui::Button("Connect to the serial port."))
         ImGui::OpenPopup("Port Selection");
 
     if (ImGui::BeginPopupModal("Port Selection", NULL, ImGuiWindowFlags_None)){
-        imgui_show_port_selection_popup(settings);
+        show_port_selection_popup();
         ImGui::EndPopup();
     }
 
@@ -231,7 +246,7 @@ void imgui_show_port_configuration_popup(Settings& settings) {
         ImGui::CloseCurrentPopup();
 }
 
-void imgui_show_connection_button(Settings& settings) {
+void Ui::show_connection_button() {
     auto size = ImGui::GetMainViewport()->Size;
     size.x = 20;
     size.y = size.y - 80;
@@ -257,8 +272,12 @@ void imgui_show_connection_button(Settings& settings) {
                 {0.2f, 0.5f, 1.0f, 1.0f},  // hover
                 {0.05f, 0.3f, 0.75f, 1.0f} // active
             );
-            if (pretty_button("Connected."))
+            if (pretty_button("Connected.")) {
                 settings.close_port_if_open();
+                // Reset only angular velocity so that UAV doesn't instantly lose
+                // it's orientation
+                imu_measurements.angular_velocity = {};
+            }
 
             pop_button_style();
         }
@@ -266,7 +285,7 @@ void imgui_show_connection_button(Settings& settings) {
         ImGui::PopFont();
 
         if (ImGui::BeginPopupModal("Port Configuration", NULL, ImGuiWindowFlags_None)) {
-            imgui_show_port_configuration_popup(settings);
+            show_port_configuration_popup();
             ImGui::EndPopup();
         }
 
@@ -300,6 +319,7 @@ int main() {
     Uav uav = {};
 
     Settings settings = {};
+    Ui ui = {settings, imu};
     
     static char line[512] = { 0 };
     size_t parse_pos = 0;
@@ -312,7 +332,7 @@ int main() {
         if (IsKeyDown(KEY_R)) {
             uav.reset();
             settings.saved_angles = EulerAngle{};
-            imu = (IMUMeasurements) {};
+            imu = (IMUMeasurements)  {};
         }
 
         if (IsKeyDown(KEY_Z)) {
@@ -393,20 +413,22 @@ int main() {
         EndMode3D();
 
         rlImGuiBegin();
+        {
+            ImGui::DockSpaceOverViewport(
+                ImGui::GetMainViewport()->ID,
+                nullptr,
+                ImGuiDockNodeFlags_PassthruCentralNode);
 
-        ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID,
-                                        nullptr,
-                                        ImGuiDockNodeFlags_PassthruCentralNode);
+            ImGui::PushFont(NULL, 40.f);
+            ui.show_hud(uav, estimate);
+            ImGui::PopFont();
 
-        ImGui::PushFont(NULL, 40.f);
-        imgui_show_hud(uav, estimate);
-        ImGui::PopFont();
+            ui.show_settings(uav);
+            ui.show_connection_button();
 
-        imgui_show_settings(settings, uav);
-        imgui_show_connection_button(settings);
+            ImGui::ShowDemoWindow(NULL);
 
-        ImGui::ShowDemoWindow(NULL);
-        
+        }
         rlImGuiEnd();
 
         EndDrawing();
