@@ -31,3 +31,24 @@ void draw_basis(Vector3 start_pos, Matrix basis) {
     draw_arrow(start_pos, { basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
     draw_arrow(start_pos, { basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
 }
+
+bool pretty_button(const char* text, float rounding)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, rounding);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12, 6));
+
+    bool clicked = ImGui::Button(text);
+
+    ImGui::PopStyleVar(2);
+    return clicked;
+}
+
+void push_button_style(ImVec4 main ,ImVec4 hover, ImVec4 active) {
+    ImGui::PushStyleColor(ImGuiCol_Button,        main);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  active);
+
+}
+void pop_button_style() {
+    ImGui::PopStyleColor(3);
+}

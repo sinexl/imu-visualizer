@@ -1,5 +1,6 @@
 #include "util.hpp"
 #include <cstdio>
+#include <imgui.h>
 #include <raylib.h>
 #include <raymath.h>
 
@@ -7,6 +8,13 @@
 // Raylib does this in a dumb way: Instead of A*x, they define x*A which yields the same result mathematically makes no sense
 Vector3 operator*(Matrix A, Vector3 x) {
     return Vector3Transform(x, A);
+}
+
+ImVec2 operator-(ImVec2 a, ImVec2 b) {
+    return {
+        a.x - b.x,
+        a.y - b.y
+    }; 
 }
 
 
