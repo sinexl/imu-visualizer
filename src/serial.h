@@ -1,29 +1,71 @@
 #ifndef SERIAL_H_
 #define SERIAL_H_
 
-#include <string.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
-#include <stdio.h>
+#include <errno.h>
+#include <string.h>
 
-int open_serial(const char* path);
+#ifdef __cplusplus
+#define SERIALDEF extern "C"
+#else
+#define SERIALDEF 
+#endif
+
+typedef struct {
+    int fd; 
+} SerialPort; 
+
+typedef int SerialError; 
+
+#define SERIAL_SUCCESS 0
+// TODO: Make this thread_local
+static SerialError serial__last_error = SERIAL_SUCCESS;  
+
+#define SERIAL__RETURN_ERROR(value) do {   \
+    serial__last_error = errno;            \
+    return (value);                        \
+} while (0)
+
+#define SERIAL__RETURN_SUCCESS(value) do { \
+    serial__last_error = SERIAL_SUCCESS;   \
+    return (value);                        \
+} while(0)
+
+
+// Opens Serial port in non-blocking mode. See serial_read().
+// Return value: 
+// On error, false.
+SERIALDEF bool serial_open(const char* path, SerialPort* out);
+// Return value:
+// On success, amount of bytes read.
+// On timeout, 0 is returned
+// On errror, -1 is returned.
+SERIALDEF int serial_read(SerialPort port, void* out, size_t out_size_bytes);
+// Return value:
+// On error, false.
+SERIALDEF bool serial_close(SerialPort port); 
+SERIALDEF SerialError serial_get_last_error(); 
+// Note: the returned pointer will be invalidated on a each subsequent call to this function.
+SERIALDEF const char* serial_stringify_error(SerialError error);
 
 #ifdef CSERIAL_IMPLEMENTATION
 
 
-//partially taken from https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
-int open_serial(const char* path) {
+//source: https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
+SERIALDEF bool serial_open(const char* path, SerialPort* out) {
+    // TODO: Notify user when NULL is passed
+    if (out == NULL || path == NULL) return false;
+    
     int fd = open(path, O_RDONLY | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) {
-        fprintf(stderr, "Error: could not open %s: %s\n", path, strerror(errno));
-        return -1;
+        SERIAL__RETURN_ERROR(false);
     }
 
     struct termios tty;
     if (tcgetattr(fd, &tty) != 0) {
-        fprintf(stderr, "Error: could not retrieve serial port info: %s\n", strerror(errno));
+        SERIAL__RETURN_ERROR(false);
     }
     cfsetospeed(&tty, B115200);
     cfsetispeed(&tty, B115200);
@@ -44,10 +86,32 @@ int open_serial(const char* path) {
 
     if (tcsetattr (fd, TCSANOW, &tty) != 0)
     {
-        fprintf(stderr, "Error: could not update tty: %s\n", strerror(errno));
-        return -1;
+        SERIAL__RETURN_ERROR(false);
     }
-    return fd;
+
+    out->fd = fd;
+    SERIAL__RETURN_SUCCESS(true);
+}
+
+SERIALDEF int serial_read(SerialPort port, void* out, size_t out_size_bytes) {
+    int n = read(port.fd, out, out_size_bytes);
+    if (n > 0) SERIAL__RETURN_SUCCESS(n);
+    if (n < 0 && (errno = EAGAIN || errno == EWOULDBLOCK)) SERIAL__RETURN_SUCCESS(0);
+
+    SERIAL__RETURN_ERROR(-1);
+}
+
+SERIALDEF bool serial_close(SerialPort port) { 
+    if (close(port.fd) == -1)  SERIAL__RETURN_ERROR(false);
+    SERIAL__RETURN_SUCCESS(true);
+}
+
+SERIALDEF SerialError serial_get_last_error() {
+    return serial__last_error; 
+}
+
+SERIALDEF const char* serial_stringify_error(SerialError error) {
+    return strerror(error);
 }
 
 #endif //  CSERIAL_IMPLEMENTATION

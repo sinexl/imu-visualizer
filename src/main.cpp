@@ -1,9 +1,9 @@
-#include "uav.hpp"
-#include "util.hpp"
 #define EULER_ANGLE_IMPLEMENTATION
 #include "euler_angle.hpp"
 #define CSERIAL_IMPLEMENTATION
 #include "serial.h"
+#include "uav.hpp"
+#include "util.hpp"
 
 #include <imgui.h>
 #include <rlImGui.h>
@@ -20,16 +20,10 @@
 #define HEIGHT 900
 
 #define RESOURCES_DIR "./resources/"
-// in m/s^2
-void draw_basis(Vector3 start_pos, Matrix basis) {
-    draw_arrow(start_pos, { basis.m0, basis.m1,  basis.m2, }, 50, 1, RED);
-    draw_arrow(start_pos, { basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
-    draw_arrow(start_pos, { basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
-}
 
-void parse_serial_async(int fd, size_t* parse_pos, char* line, size_t line_size, IMUMeasurements* imu) {
+void parse_serial_async(SerialPort port, size_t* parse_pos, char* line, size_t line_size, IMUMeasurements* imu) {
     char c;
-    while (read(fd, &c, 1) == 1) {
+    while (serial_read(port, &c, 1) == 1) {
         if (c == '\n') {
             line[*parse_pos] = '\0';
             IMUMeasurements read = {};
@@ -59,15 +53,6 @@ void camera_init(Camera* camera) {
     camera->projection = CAMERA_PERSPECTIVE;
     UpdateCamera(camera, CAMERA_FREE);
 }
-
-struct Settings {
-    struct {
-        bool roll, pitch, yaw;
-    } lock = {false, false, false};
-    bool draw_model = true;
-    bool camera_mode = false;
-    float filter_alpha = 0.92f;
-};
 
 void imgui_show_hud(Uav uav, MotionData estimate) {
     const ImGuiWindowFlags flags =
@@ -150,12 +135,43 @@ void imgui_show_hud(Uav uav, MotionData estimate) {
     ImGui::End();
 }
 
+
+struct Settings {
+    struct {
+        bool roll, pitch, yaw;
+    } lock = {false, false, false};
+    bool draw_model = true;
+    bool camera_mode = false;
+    float filter_alpha = 0.92f;
+
+    SerialPort port = {0};
+    bool port_open = false; 
+
+
+    // TODO: signal error to the user in better way (UI)
+    void close_port_if_open() {
+        if (port_open)  
+            if (!serial_close(port)) {
+                fprintf(stderr, "Error: could not close serial port: %s\n", serial_stringify_error(serial_get_last_error()));
+                exit(-1);
+            }
+        port_open = false;
+    }
+    void connect_to_port(const char* path) {
+        close_port_if_open();
+
+        if (!serial_open(path, &port)) {
+            fprintf(stderr, "Error: Could not connect to serial port: %s\n", serial_stringify_error(serial_get_last_error()));
+            exit(-1);
+        }
+        port_open = true; 
+    }
+};
+
+
+
+
 int main() {
-    const char* path = "/dev/ttyACM0";
-
-    int fd;
-    if ((fd = open_serial(path)) == -1) return -1; 
-
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIDTH, HEIGHT, "IMU Visualizer");
     SetTargetFPS(60);
@@ -187,7 +203,9 @@ int main() {
 
     EulerAngle saved_angles = {};
     while (!WindowShouldClose()) {
-        parse_serial_async(fd, &parse_pos, line, sizeof(line), &imu);
+        if (settings.port_open) { 
+            parse_serial_async(settings.port, &parse_pos, line, sizeof(line), &imu);
+        }
 
         if (IsKeyDown(KEY_R)) {
             uav.reset();
@@ -300,5 +318,5 @@ int main() {
 
     rlImGuiShutdown();
     CloseWindow();
-    if (close(fd) == -1) { fprintf(stderr, "Error: could not close serial port: %s\n", strerror(errno)); return -1; }; 
+    settings.close_port_if_open();
 } 

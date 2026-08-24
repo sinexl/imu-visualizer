@@ -2,6 +2,7 @@
 #define UTIL_H_
 
 #include <raylib.h>
+// in m/s^2
 #define GRAVITATIONAL_ACCELERATION 9.80665f
 
 // Raylib does this in a dumb way: Instead of A*x, they define x*A which yields the same result mathematically makes no sense

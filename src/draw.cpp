@@ -25,3 +25,9 @@ void draw_arrow(Vector3 start_pos, Vector3 direction, float len, float thickness
 void draw_vector(Vector3 start_pos, Vector3 vector, float thickness, Color color)  {
     draw_arrow(start_pos, Vector3Normalize(vector), Vector3Length(vector), thickness, color);
 }
+
+void draw_basis(Vector3 start_pos, Matrix basis) {
+    draw_arrow(start_pos, { basis.m0, basis.m1,  basis.m2, }, 50, 1, RED);
+    draw_arrow(start_pos, { basis.m4, basis.m5,  basis.m6  }, 50, 1, GREEN);
+    draw_arrow(start_pos, { basis.m8, basis.m9,  basis.m10 }, 50, 1, BLUE);
+}
