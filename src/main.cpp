@@ -81,22 +81,9 @@ struct Settings {
     Settings(const Settings &) = delete;
     Settings &operator=(const Settings &) = delete;
 
-    Settings(Settings&& other) {
-        port = other.port;
-        is_port_opened = other.is_port_opened;
-        other.is_port_opened = false;
-    }
+    Settings(Settings&& other) = delete;
+    Settings &operator=(Settings&& other) = delete;
 
-    Settings &operator=(Settings&& other)  {
-        if (this != &other) {
-            this->close_port_if_open();
-
-            port = other.port;
-            is_port_opened = other.is_port_opened;
-            other.is_port_opened = false;
-        }
-        return *this;
-    }
     ~Settings() {
         close_port_if_open();
     }
