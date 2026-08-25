@@ -146,6 +146,7 @@ struct Ui {
     void show_connection_button();
 
 
+    bool enable_hud = true; 
 private:
     void show_port_selection_popup();
     void show_port_configuration_popup();
@@ -287,11 +288,21 @@ void Ui::show_hud(Uav uav, MotionData estimate) {
 
 void Ui::show_settings(Uav uav) {
     ImGui::Begin("Settings");
-    if (ImGui::Checkbox("Lock Roll", &settings.lock.roll)) settings.saved_angles.roll = uav.angle.roll;
-    if (ImGui::Checkbox("Lock Pitch", &settings.lock.pitch)) settings.saved_angles.pitch = uav.angle.pitch; 
-    if (ImGui::Checkbox("Lock Yaw", &settings.lock.yaw)) settings.saved_angles.yaw = uav.angle.yaw;
-    ImGui::Checkbox("Draw Model", &settings.draw_model);
-    ImGui::DragFloat("Complementary Constant", &settings.filter_alpha, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_None);
+    {
+        ImGui::SeparatorText("UI");
+        ImGui::Checkbox("Enable HUD", &enable_hud);
+        ImGui::Checkbox("Draw Model", &settings.draw_model);
+    }
+    {
+        ImGui::SeparatorText("Orientation");
+        if (ImGui::Checkbox("Lock Roll", &settings.lock.roll)) settings.saved_angles.roll = uav.angle.roll;
+        if (ImGui::Checkbox("Lock Pitch", &settings.lock.pitch)) settings.saved_angles.pitch = uav.angle.pitch; 
+        if (ImGui::Checkbox("Lock Yaw", &settings.lock.yaw)) settings.saved_angles.yaw = uav.angle.yaw;
+    }
+    {
+        ImGui::SeparatorText("Complementary Filter");
+        ImGui::DragFloat("Complementary Constant", &settings.filter_alpha, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_None);
+    }
 
     ImGui::End();
 }
@@ -586,13 +597,15 @@ int main() {
                 ImGuiDockNodeFlags_PassthruCentralNode);
 
             ImGui::PushFont(NULL, 40.f);
-            ui.show_hud(uav, estimate);
+            if (ui.enable_hud) {
+                ui.show_hud(uav, estimate);
+            }
             ImGui::PopFont();
 
             ui.show_settings(uav);
             ui.show_connection_button();
 
-            // ImGui::ShowDemoWindow(NULL);
+            ImGui::ShowDemoWindow(NULL);
 
         }
         rlImGuiEnd();
