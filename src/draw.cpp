@@ -35,7 +35,7 @@ void draw_basis(Vector3 start_pos, Matrix basis) {
 bool pretty_button(const char* text, float rounding)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, rounding);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12, 6));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, PRETTY_BUTTON_PADDING);
 
     bool clicked = ImGui::Button(text);
 
@@ -43,12 +43,17 @@ bool pretty_button(const char* text, float rounding)
     return clicked;
 }
 
-void push_button_style(ImVec4 main ,ImVec4 hover, ImVec4 active) {
+void push_button_style(ImVec4 main, ImVec4 hover, ImVec4 active) {
     ImGui::PushStyleColor(ImGuiCol_Button,        main);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  active);
-
 }
+
+
+void push_button_style(ButtonStyle style) {
+    push_button_style(style.main, style.hover, style.active);
+}
+
 void pop_button_style() {
     ImGui::PopStyleColor(3);
 }

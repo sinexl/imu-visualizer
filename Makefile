@@ -2,7 +2,7 @@ CPP = g++
 AR  = ar
 
 CFLAGS      = -Wall -Wextra -ggdb -fsanitize=undefined -fno-sanitize-recover=undefined -fsanitize=float-divide-by-zero
-THIRDPARTY_CFLAGS = -O3
+THIRDPARTY_CFLAGS = -ggdb
 
 SRC_DIR     = ./src
 THIRDPARTY  = ./thirdparty
