@@ -2,7 +2,6 @@
 #include "raymath.h"
 #include "util.hpp"
 #include <cassert>
-#include <cstdio>
 
 EulerAngle angular_velocity_to_euler_rates(Vector3 angular_velocity, EulerAngle uav_angle) {
     float th = uav_angle.pitch;
@@ -46,10 +45,6 @@ MotionData Uav::update_angle(IMUMeasurements imu_ned, float filter_alpha, float 
     
     // Apply complementary filter: angle(t + 1) = a * (angle(t) + euler_rates(t)*dt) + (1 - a)*(accelerometer_estimate)
     angle = filter_alpha*gyroscope_estimate + (1 - filter_alpha)*accelerometer_estimate;
-    if (angle.isnan()) {
-        fprintf(stderr, "Error: nan angle: %f %f %f\n", angle.roll, angle.pitch, angle.yaw);
-        exit(2);
-    }
 
     return {
         .gyroscope = gyroscope_estimate,

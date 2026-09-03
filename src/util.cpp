@@ -18,6 +18,19 @@ ImVec2 operator-(ImVec2 a, ImVec2 b) {
 }
 
 
+bool isnan(Vector3 v) {
+    return isnan(v.x) || isnan(v.y) || isnan(v.z);
+}
+bool isnan(EulerAngle e) {
+    return isnan(e.roll) || isnan(e.pitch) || isnan(e.yaw);
+}
+bool isnan(Matrix m){
+    float* entries = (float*)(&m);
+
+    for (size_t i = 0; i < 16; ++i)
+        if (isnan(entries[i])) return true;
+    return false;
+}
 
 void print_matrix(Matrix x) {
     printf("{\n");

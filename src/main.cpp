@@ -106,23 +106,34 @@ struct Settings {
     SerialPort port = {0};
     bool is_port_opened = false;
 
-    // TODO: signal error to the user in a better way (UI)
+    struct {
+        bool uav_basis;
+        bool angular_velocity;
+        bool uav_orientation;
+
+        bool all() {
+            return uav_basis && angular_velocity && uav_orientation;
+        }
+    } valid = {true, true, true};
+
+
     void close_port_if_open() {
         if (is_port_opened)
             if (!serial_close(port)) {
+                
                 fprintf(stderr, "Error: could not close serial port: %s\n", serial_stringify_error(serial_get_last_error()));
-                exit(-1);
+                return;
             }
         is_port_opened = false;
     }
-    void connect_to_port(const char* path) {
+    [[nodiscard]] bool connect_to_port(const char* path) {
         close_port_if_open();
 
         if (!serial_open(path, &serial_cfg, &port)) {
-            fprintf(stderr, "Error: Could not connect to serial port: %s\n", serial_stringify_error(serial_get_last_error()));
-            exit(-1);
+            return false;
         }
         is_port_opened = true;
+        return true;
     }
 };
 
@@ -135,6 +146,9 @@ const ImGuiWindowFlags hud_flags =
         ImGuiWindowFlags_NoSavedSettings    |
         ImGuiWindowFlags_AlwaysAutoResize;
 
+namespace Ui{
+
+
 struct Ui {
     Settings& settings;
     IMUMeasurements& imu_measurements;
@@ -144,7 +158,10 @@ struct Ui {
     void show_hud(Uav uav, MotionData estimate);
     void show_settings(Uav uav);
     void show_connection_button();
+    void show_connection_error();
 
+    bool connection_error = false;
+    SerialError connection_error_code = SERIAL_SUCCESS;
 
     bool enable_hud = true; 
 private:
@@ -414,9 +431,14 @@ void Ui::show_port_configuration_popup() {
 
         push_button_style(Styles::GreenButton);
         if (pretty_button(conect)) {
-            settings.connect_to_port(available_ports[selected_port]);
-            port_was_selected = false;
-            ImGui::CloseCurrentPopup();
+            if (!settings.connect_to_port(available_ports[selected_port])) {
+                connection_error = true;
+                connection_error_code = serial_get_last_error();
+            }
+            else {
+                port_was_selected = false;
+                ImGui::CloseCurrentPopup();
+            }
         } 
         pop_button_style(); 
     } else {
@@ -428,7 +450,15 @@ void Ui::show_port_configuration_popup() {
         pop_button_style(); 
     }
 
+    if (connection_error) {
+        ImGui::OpenPopup("Connection Error");
+    }
 
+    if (ImGui::BeginPopupModal("Connection Error", NULL, ImGuiWindowFlags_None))
+    {
+        show_connection_error();
+        ImGui::EndPopup();
+    }
 }
 
 
@@ -470,11 +500,43 @@ void Ui::show_connection_button() {
     ImGui::End();
 }
 
+void Ui::show_connection_error() {
+    ImGui::Text("Error: Could not connect to serial port: %s", serial_stringify_error(serial_get_last_error()));
+    if (ImGui::Button("Close")) {
+        connection_error = false;
+        ImGui::CloseCurrentPopup();
+    }
+}
+
+} // namespace Ui.
+
+void handle_keys(Uav& uav, Settings& settings, IMUMeasurements& imu, Camera& camera) {
+    if (IsKeyDown(KEY_R)) {
+        uav.reset();
+        settings.saved_angles = EulerAngle{};
+        imu = (IMUMeasurements)  {};
+    }
+
+    if (IsKeyDown(KEY_Z)) {
+        camera.target = {0, 0, 0};
+        camera.up = {0, 1, 0};
+    }
+    if (IsKeyPressed(KEY_ESCAPE) && IsCursorHidden()) {
+        EnableCursor();
+        settings.camera_mode = false;
+    }
+    if (IsKeyPressed(KEY_F) && !IsCursorHidden()) {
+        DisableCursor();
+        settings.camera_mode = true;
+    }
+}
+
 int main() {
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(WIDTH, HEIGHT, "IMU Visualizer");
     SetTargetFPS(60);
     SetExitKey(KEY_NULL);
+
 
     Camera camera = {};
     camera_init(&camera);
@@ -494,69 +556,59 @@ int main() {
 
     IMUMeasurements imu = {};
     Uav uav = {};
+    MotionData estimate = { uav.angle, uav.angle };
 
     Settings settings = {};
-    Ui ui = {settings, imu};
+    Ui::Ui ui = {settings, imu};
     
     static char line[512] = { 0 };
     size_t parse_pos = 0;
 
+    const Matrix NED = MatrixRotateX(PI);
+
     while (!WindowShouldClose()) {
-        if (settings.is_port_opened) { 
-            parse_serial_async(settings.port, &parse_pos, line, sizeof(line), &imu);
-        }
+        if (settings.valid.all()) {
+            if (settings.is_port_opened) {
+                parse_serial_async(settings.port, &parse_pos, line, sizeof(line), &imu);
+            }
 
-        if (IsKeyDown(KEY_R)) {
-            uav.reset();
-            settings.saved_angles = EulerAngle{};
-            imu = (IMUMeasurements)  {};
-        }
+            handle_keys(uav, settings, imu, camera);
 
-        if (IsKeyDown(KEY_Z)) {
-            camera.target = {0, 0, 0};
-            camera.up = {0, 1, 0};
-        }
-        if (IsKeyPressed(KEY_ESCAPE) && IsCursorHidden()) {
-            EnableCursor();
-            settings.camera_mode = false; 
-        }
-        if (IsKeyPressed(KEY_F) && !IsCursorHidden()) {
-            DisableCursor();
-            settings.camera_mode = true; 
-        }
+            if (settings.camera_mode)
+                UpdateCamera(&camera, CAMERA_FREE);
 
-        if (settings.camera_mode)
-            UpdateCamera(&camera, CAMERA_FREE);
-
-        float dt = GetFrameTime();
+            float dt = GetFrameTime();
         
 
-        // Transform data in NED
-        // TODO: do not multiply by - manually
-        // imu.acceleration.y *= -1;
-        // imu.acceleration.z *= -1;
-        // imu.angular_velocity.y *= -1;
-        // imu.angular_velocity.z *= -1;
-        const Matrix NED = MatrixRotateX(PI);
-        IMUMeasurements imu_ned = imu;
-        imu_ned.angular_velocity = NED*imu.angular_velocity;
+            // Transform data in NED
+            // TODO: do not multiply by - manually
+            // imu.acceleration.y *= -1;
+            // imu.acceleration.z *= -1;
+            // imu.angular_velocity.y *= -1;
+            // imu.angular_velocity.z *= -1;
+            IMUMeasurements imu_ned = imu;
+            imu_ned.angular_velocity = NED*imu.angular_velocity;
         
-        MotionData estimate = uav.update_angle(imu_ned, settings.filter_alpha, dt);
-        if (settings.lock.pitch) uav.angle.pitch = settings.saved_angles.pitch;
-        if (settings.lock.yaw)   uav.angle.yaw   = settings.saved_angles.yaw;
-        if (settings.lock.roll)  uav.angle.roll  = settings.saved_angles.roll;
-        uav.basis = MatrixRotateZYX({uav.angle.roll, uav.angle.pitch, uav.angle.yaw});
-        // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
-        // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
-        // which includes gravitational acceleration
-        /* a.z += 1; */
-        /* printf("imu = [%f %f %f], a = [%f %f %f]\n", decomp(imu.acceleration), decomp(a)); */
-        // u(t + dt) = u(t) + a(t)dt
-        // x(t + dt) = x(t) + u(t)dt
-        /* uav.u = Vector3Add(uav.u, Vector3Scale(a, dt)); */
-        /* uav.x = Vector3Add(uav.x, Vector3Scale(uav.u, dt)); */
+            estimate = uav.update_angle(imu_ned, settings.filter_alpha, dt);
+            if (settings.lock.pitch) uav.angle.pitch = settings.saved_angles.pitch;
+            if (settings.lock.yaw)   uav.angle.yaw   = settings.saved_angles.yaw;
+            if (settings.lock.roll)  uav.angle.roll  = settings.saved_angles.roll;
+            uav.basis = MatrixRotateZYX({uav.angle.roll, uav.angle.pitch, uav.angle.yaw});
+            // TODO: do not add "g" to the acceleration.z manually and/or add ability to turn it off.
+            // subtract "g" to the measured acceleration in Z axis because IMUs usually measure "true" acceleration
+            // which includes gravitational acceleration
+            /* a.z += 1; */
+            /* printf("imu = [%f %f %f], a = [%f %f %f]\n", decomp(imu.acceleration), decomp(a)); */
+            // u(t + dt) = u(t) + a(t)dt
+            // x(t + dt) = x(t) + u(t)dt
+            /* uav.u = Vector3Add(uav.u, Vector3Scale(a, dt)); */
+            /* uav.x = Vector3Add(uav.x, Vector3Scale(uav.u, dt)); */
+        }
         
-
+        // Validity checks. TODO: Make this optional.
+        if (isnan(uav.angle))            settings.valid.uav_orientation  = false; 
+        if (isnan(uav.basis))            settings.valid.uav_basis        = false;
+        if (isnan(imu.angular_velocity)) settings.valid.angular_velocity = false;
 
         BeginDrawing();
         BeginMode3D(camera);
@@ -580,15 +632,16 @@ int main() {
                 if (settings.draw_model)
                     DrawModel(model, uav.x, 1.0, WHITE);
 
-                draw_basis(uav.x, uav.basis);
-                draw_vector(uav.x, uav.basis*imu.angular_velocity, 1, ORANGE);
+                assert(draw_basis(uav.x, uav.basis));
+                assert(draw_vector(uav.x, uav.basis*imu.angular_velocity, 1, ORANGE));
+                
 
             }
             rlPopMatrix();
 
         }
         EndMode3D();
-
+        // GUI:
         rlImGuiBegin();
         {
             ImGui::DockSpaceOverViewport(
@@ -602,10 +655,28 @@ int main() {
             }
             ImGui::PopFont();
 
+            if (!settings.valid.all())  {
+                ImGui::OpenPopup("Math Error");
+            }
+            if (ImGui::BeginPopupModal("Math Error", NULL, ImGuiWindowFlags_None)) {
+                if (!settings.valid.angular_velocity) ImGui::Text("Error: Angular velocity is invalid");
+                if (!settings.valid.uav_basis)        ImGui::Text("Error: Uav Basis is invalid");
+                if (!settings.valid.uav_orientation)  ImGui::Text("Error: Uav orientation is invalid");
+                if (ImGui::Button("Close & Reset")) {
+                    uav.reset();
+                    settings.saved_angles = EulerAngle{};
+                    imu = (IMUMeasurements)  {};
+
+                    settings.valid = {true, true, true};
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
+
             ui.show_settings(uav);
             ui.show_connection_button();
 
-            ImGui::ShowDemoWindow(NULL);
+            // ImGui::ShowDemoWindow(NULL);
 
         }
         rlImGuiEnd();

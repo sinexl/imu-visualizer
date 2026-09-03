@@ -1,13 +1,12 @@
 #ifndef EULER_ANGLE_H_
 #define EULER_ANGLE_H_
 
-#include <cmath>
+#include <math.h>
 struct EulerAngle {
     float roll, pitch, yaw;
 
     EulerAngle(float roll, float pitch, float yaw);
     EulerAngle();
-    bool isnan();
 };
 
 float mod(float a, float b);
@@ -38,9 +37,6 @@ EulerAngle operator*(float scalar, EulerAngle a) {
     return a * scalar;
 }
 
-bool EulerAngle::isnan() {
-    return std::isnan(roll) || std::isnan(pitch) || std::isnan(yaw);
-}
 
 float mod(float x, float m) { 
     return fmodf(x, m);
