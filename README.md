@@ -1,16 +1,18 @@
 # IMU Visualizer
 This program collects IMU motion data (angular velocity from gyroscope, acceleration from accelerometer) and renders 3D UAV model with estimated orientation. 
-### Keybinds 
+### Keys 
 - `R` reset UAV orientation
 - `F` enter free camera mode (use `WASD` to move camera). Press `ESC` to exit free camera mode. 
-- `Z` center camera at the UAV.  
+- `Z` center camera at the UAV.
 # Demo 
 
 https://github.com/user-attachments/assets/feef701d-0188-420d-a5e2-cf75e32a0a3f
 
 ## Hardware used 
-- STM32G474RE which transmits IMU motion data to the host PC via USB.
-- GY-521 IMU Module (which uses MPU-6050 gyroscope).  
+- STM32 Nucleo-G474RE development board which transmits IMU motion data to the host PC via USB.
+- GY-521 IMU Module (which uses MPU-6050 gyroscope).
+
+See [STM32 Nucleo-G474RE firmware for this project.](./stm32-imu/)
 
 # Resources
 This project uses:

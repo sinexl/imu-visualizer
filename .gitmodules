@@ -1,3 +1,6 @@
 [submodule "thirdparty/imgui"]
 	path = thirdparty/imgui
 	url = https://github.com/ocornut/imgui.git
+[submodule "stm32-imu"]
+	path = stm32-imu
+	url = https://github.com/sinexl/stm32-imu.git
