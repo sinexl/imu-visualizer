@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/feef701d-0188-420d-a5e2-cf75e32a0a3f
 - STM32 Nucleo-G474RE development board which transmits IMU motion data to the host PC via USB.
 - GY-521 IMU Module (which uses MPU-6050 gyroscope).
 
-See [STM32 Nucleo-G474RE firmware for this project.](./stm32-imu/)
+See [STM32 Nucleo-G474RE firmware for this project.](https://github.com/sinexl/stm32-imu/)
 
 # Resources
 This project uses:
